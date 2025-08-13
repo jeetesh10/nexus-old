@@ -1,0 +1,169 @@
+# Nexus Development Rules & Best Practices
+
+## Core Principles
+- Do not use hardcoding at all. 
+- We are building production grade solution so no mock data at all.
+- NO copy write code to avoid plagiarism.
+- Strict adherence to the developer guide. If you find any issue which needs deviation from developer guide, create RCA document if not already created and document the RCA with suggestion and prompt for guidance.
+- **NO environment-specific dependencies or naming conventions** (e.g., "Dev-API", "Prod-Service", "Test-Database"). Use generic, environment-agnostic naming and configuration.
+
+## Code Quality Standards
+
+### General Best Practices
+- Write self-documenting code with clear, descriptive variable and function names
+- Follow the DRY (Don't Repeat Yourself) principle
+- Implement proper error handling and logging
+- Use meaningful commit messages following conventional commit format
+- Write unit tests for all business logic
+- Maintain consistent code formatting and indentation
+- Use type hints/annotations where applicable
+- Implement proper input validation and sanitization
+
+### Security Best Practices
+- Never hardcode secrets, API keys, or sensitive data
+- Use environment variables for configuration
+- Implement proper authentication and authorization
+- Validate and sanitize all user inputs
+- Use parameterized queries to prevent SQL injection
+- Implement proper CORS policies
+- Use HTTPS for all external communications
+- Follow OWASP security guidelines
+
+### Configuration Best Practices
+- **NO environment-specific naming conventions** (e.g., "Dev-API", "Prod-Service", "Test-Database")
+- Use generic, environment-agnostic service names and configurations
+- Implement environment-specific values through configuration files or environment variables
+- Use consistent naming patterns across all environments
+- Avoid hardcoded environment-specific URLs, endpoints, or resource names
+
+### Performance Best Practices
+- Optimize database queries and use proper indexing
+- Implement caching strategies where appropriate
+- Use pagination for large datasets
+- Minimize network requests and payload sizes
+- Implement proper connection pooling
+- Use async/await patterns for I/O operations
+- Profile and monitor application performance
+
+### Architecture Best Practices
+- Follow SOLID principles
+- Implement proper separation of concerns
+- Use dependency injection where appropriate
+- Design for scalability and maintainability
+- Implement proper logging and monitoring
+- Use design patterns appropriately
+- Maintain loose coupling between components
+
+### Testing Best Practices
+- Write comprehensive unit tests (aim for >80% coverage)
+- Implement integration tests for critical paths
+- Use mocking frameworks appropriately
+- Test both happy path and edge cases
+- Implement automated testing in CI/CD pipeline
+- Use test-driven development (TDD) when possible
+
+### Documentation Best Practices
+- Write clear and comprehensive README files
+- Document API endpoints with OpenAPI/Swagger
+- Include code comments for complex logic
+- Maintain up-to-date architecture documentation
+- Document deployment and configuration procedures
+- Create troubleshooting guides
+
+### Git Best Practices
+- Use feature branches for development
+- Create pull requests for code reviews
+- Squash commits before merging
+- Use conventional commit messages
+- Keep commits atomic and focused
+- Review code before merging to main branch
+
+### Kubernetes/Infrastructure Best Practices
+- Use resource limits and requests
+- Implement proper health checks
+- Use secrets management for sensitive data
+- Implement proper network policies
+- Use namespaces for resource isolation
+- Monitor resource usage and scaling
+- Implement proper backup and disaster recovery
+
+### Monitoring and Observability
+- Implement structured logging
+- Use distributed tracing for microservices
+- Set up proper alerting and monitoring
+- Monitor application metrics and business KPIs
+- Implement proper error tracking
+- Use health check endpoints
+
+### Code Review Guidelines
+- Review for security vulnerabilities
+- Check for performance implications
+- Ensure proper error handling
+- Verify test coverage
+- Check for code duplication
+- Review documentation updates
+- Validate configuration changes
+
+## Language-Specific Guidelines
+
+### Python
+- Follow PEP 8 style guidelines
+- Use type hints for function parameters and return values
+- Implement proper exception handling
+- Use virtual environments for dependency management
+- Use async/await for I/O operations
+
+### Go
+- Follow Go formatting standards (gofmt)
+- Use proper error handling patterns
+- Implement proper logging with structured fields
+- Use interfaces for abstraction
+- Follow Go naming conventions
+
+### JavaScript/TypeScript
+- Use ESLint and Prettier for code formatting
+- Implement proper TypeScript types
+- Use async/await instead of callbacks
+- Follow consistent naming conventions
+- Implement proper error boundaries
+
+### Infrastructure as Code (Terraform)
+- Use modules for reusability
+- Implement proper state management
+- Use variables for configuration
+- Implement proper tagging strategy
+- Use data sources for dynamic values
+
+## Compliance and Standards
+- Follow industry security standards (SOC 2, ISO 27001)
+- Implement proper audit logging
+- Follow data protection regulations (GDPR, CCPA)
+- Use approved third-party libraries and dependencies
+- Maintain proper license compliance
+- Implement proper data retention policies
+
+## Enforcement and Development Process
+
+### Mandatory Compliance
+- **ALL development work MUST follow these rules without exception**
+- These rules apply to every line of code, configuration file, and infrastructure component
+- No deviations allowed without proper RCA documentation and approval
+- Code reviews MUST verify compliance with all rules before merging
+
+### Development Workflow Requirements
+- Run automated checks (linting, security scanning, tests) before committing
+- Ensure all new code follows established patterns and conventions
+- Validate configuration changes against environment-agnostic principles
+- Document any exceptions or deviations with proper justification
+
+### Quality Gates
+- All pull requests must pass automated quality checks
+- Manual code review must verify rule compliance
+- Security review required for any changes involving authentication, authorization, or data handling
+- Performance review required for database changes or new API endpoints
+
+### Continuous Monitoring
+- Regular audits of codebase for rule compliance
+- Automated scanning for hardcoded values and environment-specific naming
+- Monitoring for security vulnerabilities and performance issues
+- Regular review and updates of these rules based on lessons learned

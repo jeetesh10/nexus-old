@@ -1,0 +1,248 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-api-service
+  namespace: default
+  labels:
+    app: auth-api-service
+    version: v1
+    nexus.service.type: auth
+    nexus.service.description: "Authentication-and-Authorization-API"
+    nexus.service.icon: "auth"
+    nexus.service.url: "auth-api.local"
+    nexus.service.port: "8084"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: auth-api-service
+  template:
+    metadata:
+      labels:
+        app: auth-api-service
+        version: v1
+        nexus.service.type: auth
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8084"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: auth-api-service-account
+      containers:
+      - name: auth-api
+        image: nexus/auth-api:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8084
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: KEYCLOAK_BASE_URL
+          value: "http://keycloak:8080"
+        - name: KEYCLOAK_REALM
+          value: "nexus-platform"
+        - name: KEYCLOAK_CLIENT_ID
+          value: "nexus-platform"
+        - name: KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-secrets
+              key: client-secret
+        - name: KEYCLOAK_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-secrets
+              key: admin-username
+        - name: KEYCLOAK_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-secrets
+              key: admin-password
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: METRICS_ENABLED
+          value: "true"
+        - name: HEALTH_CHECK_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8084
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8084
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8084
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-api-service-account
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auth-api-role
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auth-api-role-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: auth-api-service-account
+  namespace: default
+roleRef:
+  kind: Role
+  name: auth-api-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-api-service
+  namespace: default
+  labels:
+    app: auth-api-service
+    nexus.service.type: auth
+spec:
+  selector:
+    app: auth-api-service
+  ports:
+  - name: http
+    port: 8084
+    targetPort: 8084
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-api-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-api-service
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: auth-api-monitor
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: auth-api-service
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: auth-api-alerts
+  namespace: default
+spec:
+  groups:
+  - name: auth-api
+    rules:
+    - alert: AuthAPIDown
+      expr: up{job="auth-api-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Auth API is down"
+        description: "Auth API service has been down for more than 1 minute"
+    - alert: AuthAPIHighLatency
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="auth-api-service"}[5m])) > 2
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Auth API high latency"
+        description: "95th percentile latency is above 2 seconds"
+    - alert: AuthAPIHighErrorRate
+      expr: rate(http_requests_total{job="auth-api-service", status=~"5.."}[5m]) / rate(http_requests_total{job="auth-api-service"}[5m]) > 0.05
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Auth API high error rate"
+        description: "Error rate is above 5%"

@@ -1,0 +1,870 @@
+openapi: 3.0.3
+info:
+  title: Nexus Platform Auth API
+  description: |
+    Authentication and authorization API for Nexus Platform.
+    
+    This API provides endpoints for user authentication, token management, and user information retrieval.
+    
+    ## Authentication
+    All endpoints require JWT Bearer token authentication except for login and health check endpoints.
+    
+    ## Rate Limiting
+    - Login endpoints: 10 requests per minute
+    - Token validation: 100 requests per minute
+    - User info: 50 requests per minute
+    
+    ## Error Handling
+    All errors return a consistent error response format with appropriate HTTP status codes.
+  version: 1.0.0
+  contact:
+    name: Nexus Platform Team
+    email: api@nexus.platform
+    url: https://nexus.platform
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://auth.nexus.platform/api/auth
+    description: Production server
+  - url: https://staging-auth.nexus.platform/api/auth
+    description: Staging server
+  - url: http://localhost:8084/api/auth
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health Check
+      summary: Health check
+      description: Check the health status of the Auth API service
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: Service is healthy
+                  value:
+                    status: "healthy"
+                    timestamp: "2024-01-15T10:30:00Z"
+                    keycloak: "connected"
+                    endpoints:
+                      validate_token: "/api/auth/validate-token"
+                      user_info: "/api/auth/user-info"
+                      user_groups: "/api/auth/user-groups"
+                      login: "/api/auth/login"
+                      refresh_token: "/api/auth/refresh-token"
+                      logout: "/api/auth/logout"
+                      openid_config: "/api/auth/openid-config"
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unhealthy:
+                  summary: Service is unhealthy
+                  value:
+                    error: "service_unhealthy"
+                    error_description: "Auth API service is not healthy"
+                    status_code: 503
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+
+  /login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: |
+        Authenticate user with username and password and return JWT tokens.
+        
+        This endpoint validates user credentials against Keycloak and returns access and refresh tokens.
+        The access token is valid for 5 minutes and the refresh token for 30 minutes.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              valid_login:
+                summary: Valid login credentials
+                value:
+                  username: "john.doe"
+                  password: "SecurePass123"
+              invalid_login:
+                summary: Invalid credentials
+                value:
+                  username: "invalid"
+                  password: "wrong"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              examples:
+                success:
+                  summary: Successful login response
+                  value:
+                    access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+                    refresh_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+                    expires_in: 300
+                    refresh_expires_in: 1800
+                    token_type: "Bearer"
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_credentials:
+                  summary: Missing username or password
+                  value:
+                    error: "missing_credentials"
+                    error_description: "Username and password are required"
+                    status_code: 400
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_credentials:
+                  summary: Invalid credentials
+                  value:
+                    error: "invalid_credentials"
+                    error_description: "Invalid username or password"
+                    status_code: 401
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /validate-token:
+    get:
+      tags:
+        - Authentication
+      summary: Validate JWT token
+      description: |
+        Validate a JWT token and return token information.
+        
+        This endpoint validates the token signature, expiration, and claims.
+        Returns detailed token information if valid.
+      operationId: validateToken
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: JWT token to validate
+          schema:
+            type: string
+            example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+      responses:
+        '200':
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenValidationResponse'
+              examples:
+                valid_token:
+                  summary: Valid token response
+                  value:
+                    valid: true
+                    user_id: "123e4567-e89b-12d3-a456-426614174000"
+                    username: "john.doe"
+                    email: "john.doe@example.com"
+                    exp: 1640995200
+                    iat: 1640908800
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_token:
+                  summary: Missing token parameter
+                  value:
+                    error: "missing_token"
+                    error_description: "Token parameter is required"
+                    status_code: 400
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '401':
+          description: Token is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_token:
+                  summary: Invalid token
+                  value:
+                    error: "invalid_token"
+                    error_description: "Token is invalid or expired"
+                    status_code: 401
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /user-info:
+    get:
+      tags:
+        - User Management
+      summary: Get user information
+      description: |
+        Get detailed user information from JWT token.
+        
+        This endpoint extracts user information from the provided JWT token.
+        Returns user details including groups and roles.
+      operationId: getUserInfo
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: JWT token containing user information
+          schema:
+            type: string
+            example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+      responses:
+        '200':
+          description: User information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+              examples:
+                user_info:
+                  summary: User information response
+                  value:
+                    user_id: "123e4567-e89b-12d3-a456-426614174000"
+                    username: "john.doe"
+                    email: "john.doe@example.com"
+                    name: "John Doe"
+                    given_name: "John"
+                    family_name: "Doe"
+                    groups: ["nexus", "platform-admin"]
+                    roles: ["admin", "user"]
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_token:
+                  summary: Missing token parameter
+                  value:
+                    error: "missing_token"
+                    error_description: "Token parameter is required"
+                    status_code: 400
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '401':
+          description: Token is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_token:
+                  summary: Invalid token
+                  value:
+                    error: "invalid_token"
+                    error_description: "Token is invalid or expired"
+                    status_code: 401
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /user-groups:
+    get:
+      tags:
+        - User Management
+      summary: Get user groups
+      description: |
+        Get user groups from JWT token.
+        
+        This endpoint extracts user groups from the provided JWT token.
+        Returns list of groups the user belongs to.
+      operationId: getUserGroups
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: JWT token containing user groups
+          schema:
+            type: string
+            example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+      responses:
+        '200':
+          description: User groups retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupsResponse'
+              examples:
+                user_groups:
+                  summary: User groups response
+                  value:
+                    groups: ["nexus", "platform-admin", "admin-dashboard"]
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_token:
+                  summary: Missing token parameter
+                  value:
+                    error: "missing_token"
+                    error_description: "Token parameter is required"
+                    status_code: 400
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '401':
+          description: Token is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_token:
+                  summary: Invalid token
+                  value:
+                    error: "invalid_token"
+                    error_description: "Token is invalid or expired"
+                    status_code: 401
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /refresh-token:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: |
+        Refresh an access token using a refresh token.
+        
+        This endpoint uses a valid refresh token to generate a new access token.
+        The refresh token must not be expired.
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+            examples:
+              valid_refresh:
+                summary: Valid refresh token
+                value:
+                  refresh_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              examples:
+                refreshed:
+                  summary: Token refreshed successfully
+                  value:
+                    access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+                    refresh_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+                    expires_in: 300
+                    refresh_expires_in: 1800
+                    token_type: "Bearer"
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_refresh_token:
+                  summary: Missing refresh token
+                  value:
+                    error: "missing_refresh_token"
+                    error_description: "Refresh token is required"
+                    status_code: 400
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_refresh_token:
+                  summary: Invalid refresh token
+                  value:
+                    error: "invalid_refresh_token"
+                    error_description: "Invalid refresh token"
+                    status_code: 401
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: |
+        Logout user and invalidate refresh token.
+        
+        This endpoint invalidates the provided refresh token, effectively logging out the user.
+        The access token will remain valid until it expires.
+      operationId: logoutUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+            examples:
+              logout:
+                summary: Logout request
+                value:
+                  token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+              examples:
+                logout_success:
+                  summary: Logout successful
+                  value:
+                    message: "Logged out successfully"
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_token:
+                  summary: Missing token
+                  value:
+                    error: "missing_token"
+                    error_description: "Token is required"
+                    status_code: 400
+                    timestamp: "2024-01-15T10:30:00Z"
+                    request_id: "req_123456789"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /openid-config:
+    get:
+      tags:
+        - Configuration
+      summary: Get OpenID Connect configuration
+      description: |
+        Get OpenID Connect configuration from Keycloak.
+        
+        This endpoint returns the OpenID Connect discovery document from Keycloak,
+        containing endpoints and configuration information.
+      operationId: getOpenIDConfig
+      responses:
+        '200':
+          description: OpenID configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenIDConfigResponse'
+              examples:
+                openid_config:
+                  summary: OpenID configuration
+                  value:
+                    issuer: "http://localhost:8080/realms/nexus-platform"
+                    authorization_endpoint: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/auth"
+                    token_endpoint: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/token"
+                    userinfo_endpoint: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/userinfo"
+                    jwks_uri: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/certs"
+                    end_session_endpoint: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/logout"
+                    response_types_supported: ["code", "none", "id_token", "token", "id_token token", "code id_token", "code token", "code id_token token"]
+                    subject_types_supported: ["public", "pairwise"]
+                    id_token_signing_alg_values_supported: ["PS384", "ES384", "RS384", "HS256", "HS512", "ES256", "RS256", "HS384", "ES512", "PS256", "PS512", "RS512"]
+                    scopes_supported: ["openid", "profile", "email", "address", "phone", "offline_access", "microprofile-jwt"]
+                    token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic", "client_secret_post", "tls_client_auth", "client_secret_jwt"]
+                    claims_supported: ["sub", "iss", "auth_time", "name", "given_name", "family_name", "preferred_username", "email"]
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Keycloak authentication
+
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: User's username or email
+          example: "john.doe"
+          minLength: 3
+          maxLength: 50
+        password:
+          type: string
+          description: User's password
+          example: "SecurePass123"
+          minLength: 8
+          maxLength: 128
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        refresh_token:
+          type: string
+          description: JWT refresh token
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        expires_in:
+          type: integer
+          description: Access token expiration time in seconds
+          example: 300
+        refresh_expires_in:
+          type: integer
+          description: Refresh token expiration time in seconds
+          example: 1800
+        token_type:
+          type: string
+          description: Token type
+          example: "Bearer"
+
+    TokenValidationResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          description: Whether the token is valid
+          example: true
+        user_id:
+          type: string
+          description: User's unique identifier
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        username:
+          type: string
+          description: User's username
+          example: "john.doe"
+        email:
+          type: string
+          description: User's email address
+          example: "john.doe@example.com"
+        exp:
+          type: integer
+          description: Token expiration timestamp
+          example: 1640995200
+        iat:
+          type: integer
+          description: Token issued at timestamp
+          example: 1640908800
+
+    UserInfoResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          description: User's unique identifier
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        username:
+          type: string
+          description: User's username
+          example: "john.doe"
+        email:
+          type: string
+          description: User's email address
+          example: "john.doe@example.com"
+        name:
+          type: string
+          description: User's full name
+          example: "John Doe"
+        given_name:
+          type: string
+          description: User's given name
+          example: "John"
+        family_name:
+          type: string
+          description: User's family name
+          example: "Doe"
+        groups:
+          type: array
+          description: User's group memberships
+          items:
+            type: string
+          example: ["nexus", "platform-admin"]
+        roles:
+          type: array
+          description: User's roles
+          items:
+            type: string
+          example: ["admin", "user"]
+
+    UserGroupsResponse:
+      type: object
+      properties:
+        groups:
+          type: array
+          description: User's group memberships
+          items:
+            type: string
+          example: ["nexus", "platform-admin", "admin-dashboard"]
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: JWT refresh token
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+
+    LogoutRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: JWT refresh token to invalidate
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+
+    LogoutResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Logout message
+          example: "Logged out successfully"
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Service health status
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+          example: "2024-01-15T10:30:00Z"
+        keycloak:
+          type: string
+          description: Keycloak connection status
+          example: "connected"
+        endpoints:
+          type: object
+          description: Available API endpoints
+          properties:
+            validate_token:
+              type: string
+              example: "/api/auth/validate-token"
+            user_info:
+              type: string
+              example: "/api/auth/user-info"
+            user_groups:
+              type: string
+              example: "/api/auth/user-groups"
+            login:
+              type: string
+              example: "/api/auth/login"
+            refresh_token:
+              type: string
+              example: "/api/auth/refresh-token"
+            logout:
+              type: string
+              example: "/api/auth/logout"
+            openid_config:
+              type: string
+              example: "/api/auth/openid-config"
+
+    OpenIDConfigResponse:
+      type: object
+      description: OpenID Connect discovery document
+      properties:
+        issuer:
+          type: string
+          description: Issuer identifier
+          example: "http://localhost:8080/realms/nexus-platform"
+        authorization_endpoint:
+          type: string
+          description: Authorization endpoint
+          example: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/auth"
+        token_endpoint:
+          type: string
+          description: Token endpoint
+          example: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/token"
+        userinfo_endpoint:
+          type: string
+          description: User info endpoint
+          example: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/userinfo"
+        jwks_uri:
+          type: string
+          description: JSON Web Key Set URI
+          example: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/certs"
+        end_session_endpoint:
+          type: string
+          description: End session endpoint
+          example: "http://localhost:8080/realms/nexus-platform/protocol/openid-connect/logout"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: "invalid_credentials"
+        error_description:
+          type: string
+          description: Detailed error message
+          example: "Invalid username or password"
+        status_code:
+          type: integer
+          description: HTTP status code
+          example: 401
+        timestamp:
+          type: string
+          format: date-time
+          description: Error timestamp
+          example: "2024-01-15T10:30:00Z"
+        request_id:
+          type: string
+          description: Unique request identifier
+          example: "req_123456789"
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            no_token:
+              summary: No authentication token provided
+              value:
+                error: "unauthorized"
+                error_description: "Authentication token required"
+                status_code: 401
+                timestamp: "2024-01-15T10:30:00Z"
+                request_id: "req_123456789"
+
+    Forbidden:
+      description: Access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            insufficient_permissions:
+              summary: User lacks required permissions
+              value:
+                error: "forbidden"
+                error_description: "Insufficient permissions for this operation"
+                status_code: 403
+                timestamp: "2024-01-15T10:30:00Z"
+                request_id: "req_123456789"
+
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalid_input:
+              summary: Invalid request parameters
+              value:
+                error: "validation_error"
+                error_description: "Invalid request parameters"
+                status_code: 400
+                timestamp: "2024-01-15T10:30:00Z"
+                request_id: "req_123456789"
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            too_many_requests:
+              summary: Rate limit exceeded
+              value:
+                error: "rate_limit_exceeded"
+                error_description: "Too many requests, please try again later"
+                status_code: 429
+                timestamp: "2024-01-15T10:30:00Z"
+                request_id: "req_123456789"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            server_error:
+              summary: Internal server error
+              value:
+                error: "internal_server_error"
+                error_description: "An unexpected error occurred"
+                status_code: 500
+                timestamp: "2024-01-15T10:30:00Z"
+                request_id: "req_123456789"

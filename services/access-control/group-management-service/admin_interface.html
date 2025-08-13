@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Platform - Service Management</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h3 {
+            color: #495057;
+            margin-bottom: 10px;
+        }
+        
+        .card p {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .status-available {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-coming-soon {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .api-info {
+            background: #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .api-info h3 {
+            color: #495057;
+            margin-bottom: 15px;
+        }
+        
+        .api-endpoint {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Nexus Platform</h1>
+            <p>Service Management & Access Control</p>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <h2>📊 API Endpoints</h2>
+                <div class="api-info">
+                    <h3>Available API Endpoints:</h3>
+                    <div class="api-endpoint">GET /api/health - Health check</div>
+                    <div class="api-endpoint">GET /api/services - List all services</div>
+                    <div class="api-endpoint">GET /api/user-access?groups=group1,group2 - Get user accessible services</div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>🔧 Database Management</h2>
+                <div class="grid">
+                    <div class="card">
+                        <h3>Services</h3>
+                        <p>Manage platform services and their configurations</p>
+                        <button class="btn" onclick="loadServices()">View Services</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Groups</h3>
+                        <p>Manage Keycloak groups and their hierarchy</p>
+                        <button class="btn" onclick="loadGroups()">View Groups</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Mappings</h3>
+                        <p>Configure service-group access mappings</p>
+                        <button class="btn" onclick="loadMappings()">View Mappings</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>🧪 Test Access Control</h2>
+                <div class="grid">
+                    <div class="card">
+                        <h3>Test User Groups</h3>
+                        <p>Test access control with different user groups</p>
+                        <button class="btn btn-secondary" onclick="testAccess('nexus,platform-admin')">Platform Admin</button>
+                        <button class="btn btn-secondary" onclick="testAccess('test-client,test-client/id-service')">Test Client</button>
+                    </div>
+                </div>
+                <div id="test-results"></div>
+            </div>
+            
+            <div class="section">
+                <h2>📋 Current Services</h2>
+                <div id="services-list" class="loading">Loading services...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8083';
+        
+        // Load services on page load
+        window.onload = function() {
+            loadServices();
+        };
+        
+        async function loadServices() {
+            try {
+                const response = await fetch(`${API_BASE}/api/services`);
+                if (response.ok) {
+                    const services = await response.json();
+                    displayServices(services);
+                } else {
+                    showError('Failed to load services');
+                }
+            } catch (error) {
+                showError('Error loading services: ' + error.message);
+            }
+        }
+        
+        function displayServices(services) {
+            const container = document.getElementById('services-list');
+            container.innerHTML = '';
+            
+            services.forEach(service => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <h3>${service.title}</h3>
+                    <p>${service.description}</p>
+                    <p><strong>ID:</strong> ${service.service_id}</p>
+                    <p><strong>URL:</strong> ${service.url}</p>
+                    <span class="status status-${service.status}">${service.status}</span>
+                `;
+                container.appendChild(card);
+            });
+        }
+        
+        async function testAccess(groups) {
+            try {
+                const response = await fetch(`${API_BASE}/api/user-access?groups=${encodeURIComponent(groups)}`);
+                if (response.ok) {
+                    const accessibleServices = await response.json();
+                    displayTestResults(groups, accessibleServices);
+                } else {
+                    showError('Failed to test access');
+                }
+            } catch (error) {
+                showError('Error testing access: ' + error.message);
+            }
+        }
+        
+        function displayTestResults(groups, accessibleServices) {
+            const container = document.getElementById('test-results');
+            container.innerHTML = `
+                <div class="card">
+                    <h3>Access Test Results</h3>
+                    <p><strong>Groups:</strong> ${groups}</p>
+                    <p><strong>Accessible Services:</strong> ${accessibleServices.length}</p>
+                    <ul>
+                        ${accessibleServices.map(service => `<li>${service.title} (${service.access_level})</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+        
+        function showError(message) {
+            const container = document.getElementById('services-list');
+            container.innerHTML = `<div class="error">${message}</div>`;
+        }
+        
+        function loadGroups() {
+            alert('Groups management interface coming soon!');
+        }
+        
+        function loadMappings() {
+            alert('Mappings management interface coming soon!');
+        }
+    </script>
+</body>
+</html>

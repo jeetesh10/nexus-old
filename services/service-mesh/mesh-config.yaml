@@ -1,0 +1,204 @@
+# Service Mesh Configuration for Nexus Platform
+# This defines how internal services communicate with each other
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-service-mesh-config
+  namespace: nexus-platform
+data:
+  # Service discovery configuration
+  service-discovery.yaml: |
+    services:
+      # Authentication services
+      auth-api:
+        host: localhost
+        port: 8084
+        health_check: /api/auth/health
+        timeout: 3s
+        retries: 3
+        circuit_breaker:
+          failure_threshold: 5
+          recovery_timeout: 30s
+      
+      # Access control services
+      access-control:
+        host: localhost
+        port: 8083
+        health_check: /api/health
+        timeout: 3s
+        retries: 3
+        circuit_breaker:
+          failure_threshold: 5
+          recovery_timeout: 30s
+      
+      # Admin dashboard
+      admin-dashboard:
+        host: localhost
+        port: 8081
+        health_check: /health
+        timeout: 5s
+        retries: 2
+        circuit_breaker:
+          failure_threshold: 3
+          recovery_timeout: 60s
+      
+      # Monitoring services
+      prometheus:
+        host: localhost
+        port: 9090
+        health_check: /-/healthy
+        timeout: 2s
+        retries: 1
+      
+      grafana:
+        host: localhost
+        port: 3000
+        health_check: /api/health
+        timeout: 3s
+        retries: 2
+      
+      loki:
+        host: localhost
+        port: 3100
+        health_check: /ready
+        timeout: 2s
+        retries: 1
+
+  # Routing rules
+  routing-rules.yaml: |
+    rules:
+      # Auth API routing
+      - name: auth-api-routing
+        source: "*"
+        destination: auth-api
+        paths:
+          - /api/auth/*
+        policies:
+          - authentication: required
+          - rate_limit: 1000/minute
+          - timeout: 3s
+      
+      # Access control routing
+      - name: access-control-routing
+        source: "*"
+        destination: access-control
+        paths:
+          - /api/services
+          - /api/user-access
+        policies:
+          - authentication: required
+          - rate_limit: 500/minute
+          - timeout: 3s
+      
+      # Admin dashboard routing
+      - name: admin-dashboard-routing
+        source: "*"
+        destination: admin-dashboard
+        paths:
+          - /admin/*
+        policies:
+          - authentication: required
+          - authorization: admin-only
+          - rate_limit: 100/minute
+          - timeout: 10s
+      
+      # Monitoring routing
+      - name: monitoring-routing
+        source: "*"
+        destination: prometheus
+        paths:
+          - /metrics
+          - /api/v1/*
+        policies:
+          - authentication: required
+          - rate_limit: 200/minute
+          - timeout: 5s
+
+  # Load balancing configuration
+  load-balancing.yaml: |
+    strategies:
+      round_robin:
+        type: round_robin
+        health_check: true
+      
+      least_connections:
+        type: least_connections
+        health_check: true
+      
+      weighted:
+        type: weighted
+        weights:
+          primary: 80
+          secondary: 20
+
+  # Circuit breaker configuration
+  circuit-breaker.yaml: |
+    defaults:
+      failure_threshold: 5
+      recovery_timeout: 30s
+      half_open_requests: 3
+    
+    services:
+      auth-api:
+        failure_threshold: 3
+        recovery_timeout: 60s
+      
+      access-control:
+        failure_threshold: 5
+        recovery_timeout: 30s
+      
+      admin-dashboard:
+        failure_threshold: 2
+        recovery_timeout: 120s
+
+  # Retry configuration
+  retry-config.yaml: |
+    defaults:
+      max_retries: 3
+      retry_delay: 100ms
+      backoff_multiplier: 2.0
+    
+    services:
+      auth-api:
+        max_retries: 2
+        retry_delay: 200ms
+      
+      access-control:
+        max_retries: 3
+        retry_delay: 100ms
+      
+      admin-dashboard:
+        max_retries: 1
+        retry_delay: 500ms
+
+  # Timeout configuration
+  timeout-config.yaml: |
+    defaults:
+      request_timeout: 5s
+      idle_timeout: 60s
+    
+    services:
+      auth-api:
+        request_timeout: 3s
+        idle_timeout: 30s
+      
+      access-control:
+        request_timeout: 3s
+        idle_timeout: 30s
+      
+      admin-dashboard:
+        request_timeout: 10s
+        idle_timeout: 120s
+      
+      prometheus:
+        request_timeout: 2s
+        idle_timeout: 30s
+      
+      grafana:
+        request_timeout: 5s
+        idle_timeout: 60s
+      
+      loki:
+        request_timeout: 2s
+        idle_timeout: 30s

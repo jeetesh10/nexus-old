@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Platform - Login</title>
+    <script src="config.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            backdrop-filter: blur(10px);
+        }
+
+        .logo {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        p {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .login-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .features {
+            margin-top: 30px;
+            text-align: left;
+        }
+
+        .features h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-list li {
+            color: #666;
+            margin-bottom: 8px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .feature-list li:before {
+            content: "✓";
+            color: #667eea;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+        }
+
+        .test-credentials {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+
+        .test-credentials h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .test-credentials p {
+            margin-bottom: 5px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">🚀</div>
+        <h1>Nexus Platform</h1>
+        <p>Welcome to your unified platform dashboard. Please log in to continue.</p>
+        
+        <button class="login-btn" onclick="login()">
+            🔐 Sign In with Keycloak
+        </button>
+
+        <div class="features">
+            <h3>Platform Features:</h3>
+            <ul class="feature-list">
+                <li>Unified authentication across all services</li>
+                <li>Role-based access control</li>
+                <li>Admin dashboard for platform management</li>
+                <li>Real-time monitoring and analytics</li>
+                <li>Centralized logging and metrics</li>
+                <li>Identity resolution services</li>
+            </ul>
+        </div>
+
+        <div class="test-credentials">
+            <h4>Test Credentials:</h4>
+            <p><strong>Admin User:</strong> admin / AdminPass123</p>
+            <p><strong>Test User:</strong> test-user / TestPass123</p>
+        </div>
+    </div>
+
+    <script>
+        function login() {
+            // Redirect to Keycloak login using Implicit Flow (no CORS issues)
+            const clientId = 'nexus-landing-page';
+            const redirectUri = encodeURIComponent(config.landingPageUrl + '/landing-page.html');
+            const authUrl = `${config.keycloakBaseUrl}/realms/nexus-platform/protocol/openid-connect/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=openid`;
+            console.log('🔐 Redirecting to:', authUrl);
+            window.location.href = authUrl;
+        }
+    </script>
+</body>
+</html>

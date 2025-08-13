@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Platform Auth API - Swagger UI</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css" />
+    <style>
+        html {
+            box-sizing: border-box;
+            overflow: -moz-scrollbars-vertical;
+            overflow-y: scroll;
+        }
+        *, *:before, *:after {
+            box-sizing: inherit;
+        }
+        body {
+            margin:0;
+            background: #fafafa;
+        }
+        .swagger-ui .topbar {
+            background-color: #2c3e50;
+        }
+        .swagger-ui .topbar .download-url-wrapper .select-label {
+            color: #ffffff;
+        }
+        .swagger-ui .info .title {
+            color: #2c3e50;
+        }
+        .swagger-ui .scheme-container {
+            background-color: #ffffff;
+            box-shadow: 0 1px 2px 0 rgba(0,0,0,.15);
+        }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-standalone-preset.js"></script>
+    <script>
+        window.onload = function() {
+            // Swagger UI configuration
+            const ui = SwaggerUIBundle({
+                url: './openapi.yaml',
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                ],
+                layout: "StandaloneLayout",
+                validatorUrl: null,
+                docExpansion: "list",
+                filter: true,
+                showExtensions: true,
+                showCommonExtensions: true,
+                tryItOutEnabled: true,
+                requestInterceptor: function(request) {
+                    // Add common headers
+                    request.headers['Content-Type'] = 'application/json';
+                    request.headers['X-Request-ID'] = generateRequestId();
+                    
+                    // Add authentication token if available
+                    const token = localStorage.getItem('access_token');
+                    if (token) {
+                        request.headers['Authorization'] = 'Bearer ' + token;
+                    }
+                    
+                    return request;
+                },
+                responseInterceptor: function(response) {
+                    // Store tokens from login response
+                    if (response.url && response.url.includes('/login') && response.status === 200) {
+                        try {
+                            const data = JSON.parse(response.body);
+                            if (data.access_token) {
+                                localStorage.setItem('access_token', data.access_token);
+                            }
+                            if (data.refresh_token) {
+                                localStorage.setItem('refresh_token', data.refresh_token);
+                            }
+                        } catch (e) {
+                            console.log('Error parsing response:', e);
+                        }
+                    }
+                    return response;
+                }
+            });
+            
+            // Generate unique request ID
+            function generateRequestId() {
+                return 'req_' + Math.random().toString(36).substr(2, 9);
+            }
+            
+            // Add custom CSS for better styling
+            const style = document.createElement('style');
+            style.textContent = `
+                .swagger-ui .opblock.opblock-get .opblock-summary-method {
+                    background-color: #61affe;
+                }
+                .swagger-ui .opblock.opblock-post .opblock-summary-method {
+                    background-color: #49cc90;
+                }
+                .swagger-ui .opblock.opblock-put .opblock-summary-method {
+                    background-color: #fca130;
+                }
+                .swagger-ui .opblock.opblock-delete .opblock-summary-method {
+                    background-color: #f93e3e;
+                }
+                .swagger-ui .btn.execute {
+                    background-color: #4990e2;
+                }
+                .swagger-ui .btn.execute:hover {
+                    background-color: #357abd;
+                }
+                .swagger-ui .auth-wrapper {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    padding: 15px;
+                    margin: 10px 0;
+                }
+                .swagger-ui .auth-container {
+                    margin: 10px 0;
+                }
+                .swagger-ui .auth-container input {
+                    margin: 5px;
+                    padding: 8px;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                }
+                .swagger-ui .auth-container button {
+                    background-color: #4990e2;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    margin: 5px;
+                }
+                .swagger-ui .auth-container button:hover {
+                    background-color: #357abd;
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Add authentication helper
+            const authHelper = document.createElement('div');
+            authHelper.className = 'auth-wrapper';
+            authHelper.innerHTML = `
+                <h4>🔐 Authentication Helper</h4>
+                <div class="auth-container">
+                    <input type="text" id="username" placeholder="Username" value="john.doe">
+                    <input type="password" id="password" placeholder="Password" value="SecurePass123">
+                    <button onclick="login()">Login</button>
+                    <button onclick="logout()">Logout</button>
+                    <button onclick="clearTokens()">Clear Tokens</button>
+                </div>
+                <div id="auth-status" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+            `;
+            
+            // Insert auth helper before swagger-ui div
+            document.getElementById('swagger-ui').parentNode.insertBefore(authHelper, document.getElementById('swagger-ui'));
+            
+            // Login function
+            window.login = function() {
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const statusDiv = document.getElementById('auth-status');
+                
+                if (!username || !password) {
+                    statusDiv.innerHTML = '❌ Please enter username and password';
+                    return;
+                }
+                
+                statusDiv.innerHTML = '🔄 Logging in...';
+                
+                fetch('./login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Request-ID': generateRequestId()
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.access_token) {
+                        localStorage.setItem('access_token', data.access_token);
+                        if (data.refresh_token) {
+                            localStorage.setItem('refresh_token', data.refresh_token);
+                        }
+                        statusDiv.innerHTML = '✅ Login successful! Token stored.';
+                        // Refresh the page to update Swagger UI
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        statusDiv.innerHTML = '❌ Login failed: ' + (data.error_description || 'Unknown error');
+                    }
+                })
+                .catch(error => {
+                    statusDiv.innerHTML = '❌ Login error: ' + error.message;
+                });
+            };
+            
+            // Logout function
+            window.logout = function() {
+                const refreshToken = localStorage.getItem('refresh_token');
+                const statusDiv = document.getElementById('auth-status');
+                
+                if (refreshToken) {
+                    statusDiv.innerHTML = '🔄 Logging out...';
+                    
+                    fetch('./logout', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Request-ID': generateRequestId()
+                        },
+                        body: JSON.stringify({
+                            token: refreshToken
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('refresh_token');
+                        statusDiv.innerHTML = '✅ Logout successful!';
+                        // Refresh the page to update Swagger UI
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    })
+                    .catch(error => {
+                        statusDiv.innerHTML = '❌ Logout error: ' + error.message;
+                    });
+                } else {
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    statusDiv.innerHTML = '✅ Tokens cleared!';
+                    // Refresh the page to update Swagger UI
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                }
+            };
+            
+            // Clear tokens function
+            window.clearTokens = function() {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                document.getElementById('auth-status').innerHTML = '✅ Tokens cleared!';
+                // Refresh the page to update Swagger UI
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            };
+            
+            // Update auth status on page load
+            const token = localStorage.getItem('access_token');
+            const statusDiv = document.getElementById('auth-status');
+            if (token) {
+                statusDiv.innerHTML = '✅ Authenticated (token available)';
+            } else {
+                statusDiv.innerHTML = '❌ Not authenticated';
+            }
+        };
+    </script>
+</body>
+</html>

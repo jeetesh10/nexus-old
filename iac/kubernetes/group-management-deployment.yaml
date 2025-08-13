@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: group-management-service
+  namespace: default
+  labels:
+    app: group-management-service
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: group-management-service
+  template:
+    metadata:
+      labels:
+        app: group-management-service
+        version: v1
+    spec:
+      containers:
+      - name: group-management
+        image: nexus/group-management:latest
+        ports:
+        - containerPort: 8083
+          name: http
+        env:
+        - name: DATABASE_PATH
+          value: "/app/database/services.db"
+        - name: PORT
+          value: "8083"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: database-volume
+          mountPath: /app/database
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: group-management-service
+  namespace: default
+  labels:
+    app: group-management-service
+spec:
+  selector:
+    app: group-management-service
+  ports:
+  - name: http
+    port: 8083
+    targetPort: 8083
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: group-management-database
+  namespace: default
+data:
+  services.db: |
+    # This will be populated from the actual database file
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: group-management-db-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: group-management-db-pv
+  namespace: default
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  local:
+    path: /tmp/group-management-db
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - kind-control-plane
