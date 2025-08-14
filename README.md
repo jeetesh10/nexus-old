@@ -102,10 +102,10 @@ kubectl port-forward service/postgresql-service 5432:5432
 ### **Step 1: Fix Image Loading (30 minutes)**
 ```bash
 # Load images into kind cluster
-kind load docker-image --name nexus-dev nexus/auth-api:latest
-kind load docker-image --name nexus-dev nexus/admin-dashboard:latest
-kind load docker-image --name nexus-dev nexus/mongodb-orchestrator:latest
-kind load docker-image --name nexus-dev nexus/postgresql-orchestrator:latest
+kind load docker-image --name nexus nexus/auth-api:latest
+kind load docker-image --name nexus nexus/admin-dashboard:latest
+kind load docker-image --name nexus nexus/mongodb-orchestrator:latest
+kind load docker-image --name nexus nexus/postgresql-orchestrator:latest
 
 # Restart deployments
 kubectl delete pods -l app=auth-api-service

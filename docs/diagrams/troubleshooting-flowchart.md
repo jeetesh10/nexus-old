@@ -137,13 +137,13 @@ Priority: 🟡 HIGH
 docker images | grep nexus
 
 # 2. Load images into kind cluster
-kind load docker-image --name nexus-dev nexus/auth-api:latest
-kind load docker-image --name nexus-dev nexus/admin-dashboard:latest
-kind load docker-image --name nexus-dev nexus/mongodb-orchestrator:latest
-kind load docker-image --name nexus-dev nexus/postgresql-orchestrator:latest
+kind load docker-image --name nexus nexus/auth-api:latest
+kind load docker-image --name nexus nexus/admin-dashboard:latest
+kind load docker-image --name nexus nexus/mongodb-orchestrator:latest
+kind load docker-image --name nexus nexus/postgresql-orchestrator:latest
 
 # 3. Verify images in cluster
-docker exec nexus-dev-control-plane ctr images ls | grep nexus
+docker exec nexus-control-plane ctr images ls | grep nexus
 
 # 4. Restart deployments
 kubectl delete pods -l app=auth-api-service
