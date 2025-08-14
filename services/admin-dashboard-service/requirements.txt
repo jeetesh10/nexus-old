@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-kubernetes
-gunicorn
-pytest
-httpx
-prometheus-client
-requests

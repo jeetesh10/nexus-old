@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alerts-configmap
+  namespace: nexus-platform
+data:
+  # This file contains the alerting rules for Prometheus.
+  # We are creating a placeholder rule as an example.
+  alerts.yml: |
+    groups:
+      - name: example-alerts
+        rules:
+          - alert: InstanceDown
+            expr: up == 0
+            for: 1m
+            labels:
+              severity: page
+            annotations:
+              summary: "Instance {{ $labels.instance }} down"
+              description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute."

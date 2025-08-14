@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  namespace: nexus-platform
+data:
+  grafana.ini: |
+    [analytics]
+    reporting_enabled = false
+    check_for_updates = false
+    [grafana_net]
+    url = https://grafana.net
