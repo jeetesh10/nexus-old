@@ -14,7 +14,6 @@ A comprehensive microservices platform built with Kubernetes, featuring API Gate
 |-----------|--------|--------|-------|
 | **Kubernetes Infrastructure** | ✅ Working | 100% | Kind cluster operational |
 | **NGINX Ingress Controller** | ✅ Working | 100% | Load balancing active |
-| **APISIX API Gateway** | ✅ Working | 100% | Gateway with dashboard |
 | **Linkerd Service Mesh** | ✅ Working | 100% | Control plane running |
 | **MongoDB Database** | ✅ Working | 100% | Database instance running |
 | **PostgreSQL Database** | ✅ Working | 100% | Database instance running |
@@ -70,9 +69,6 @@ cd Nexus
 
 ### **Access Services**
 ```bash
-# APISIX Gateway
-kubectl port-forward service/apisix-gateway 30080:80 -n apisix
-
 # Grafana Dashboard
 kubectl port-forward service/kube-prometheus-stack-grafana 3000:80 -n monitoring
 
