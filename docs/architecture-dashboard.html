@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Architecture Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400..700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .font-dancing {
+            font-family: 'Dancing Script', cursive;
+        }
+        .menu-link {
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .menu-link.active {
+            color: #fde047;
+            background-color: rgba(251, 191, 36, 0.1);
+        }
+        .submenu-toggle {
+            transition: transform 0.2s;
+        }
+        .submenu-toggle.rotate {
+            transform: rotate(90deg);
+        }
+        .approval-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+        .status-pending { background-color: #ef4444; color: white; }
+        .status-approved { background-color: #10b981; color: white; }
+        .status-in-review { background-color: #f59e0b; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .diagram-container {
+            background: #1e293b;
+            border: 2px dashed #475569;
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .gemini-button {
+            background: linear-gradient(45deg, #4285F4, #9B72CB, #D96570, #F2A60F);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-950 text-white p-4 sm:p-8 min-h-screen flex flex-col space-y-8">
+
+    <!-- Header -->
+    <div class="bg-slate-800/50 backdrop-blur-sm rounded-3xl shadow-2xl p-4 sm:p-6 border border-orange-400/20 z-[100] mx-auto max-w-7xl w-full">
+        <nav class="container mx-auto flex items-center justify-between">
+            <div>
+                <img src="https://placehold.co/60x60/fde047/1f2937?text=NEXUS" alt="Nexus Logo" class="w-12 h-12 sm:w-16 sm:h-16 rounded-xl shadow-lg hover:rotate-6 transition-transform duration-300">
+            </div>
+            <div class="flex-1 flex flex-col items-center justify-center relative">
+                <h1 class="font-dancing text-4xl sm:text-6xl font-bold text-amber-300 text-center tracking-tight">
+                    Nexus Architecture Dashboard
+                </h1>
+                <div class="flex items-center mt-2 space-x-2">
+                    <span class="text-lg sm:text-2xl text-white font-medium italic tracking-normal">
+                        Production-Grade Architecture Documentation
+                    </span>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="text-right">
+                    <div class="text-sm text-white/70">Development Status</div>
+                    <div class="text-lg font-bold text-red-400">BLOCKED</div>
+                    <div class="text-xs text-white/50">Pending Approvals</div>
+                </div>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content and Sidebar Container -->
+    <div class="flex-grow flex flex-col lg:flex-row space-y-8 lg:space-y-0 lg:space-x-8 mx-auto max-w-7xl w-full">
+        
+        <!-- Left Sidebar Menu -->
+        <aside class="w-full lg:w-96 flex-shrink-0">
+            <div id="main-menu" class="bg-slate-800/50 backdrop-blur-sm rounded-3xl shadow-2xl p-4 border border-orange-400/20">
+                <!-- Menu will be dynamically generated here -->
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 space-y-8">
+            <div class="p-8 rounded-3xl bg-slate-800/50 backdrop-blur-sm shadow-2xl border border-orange-400/20 min-h-[600px]">
+                <div id="content-area">
+                    <!-- Dynamic content will be loaded here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-8 mx-auto max-w-7xl w-full">
+        <footer class="p-6 rounded-3xl bg-slate-800/50 backdrop-blur-sm shadow-2xl border border-orange-400/20 text-center text-slate-300">
+            <p>&copy; 2025 Nexus Architecture Dashboard. Production-Grade Development Process.</p>
+        </footer>
+    </div>
+
+    <script>
+        // --- DATA STORE ---
+        const contentData = {
+            'system-context': { 
+                name: '📋 System Context Diagram', 
+                type: 'main'
+            },
+            'platform-setup': {
+                name: '🛠️ Platform Setup',
+                type: 'platform',
+                adr: {
+                    'ADR-001': { title: 'Use local setup with Kind for development', content: 'To ensure rapid feedback cycles and minimize cost, local development environments will be provisioned using Kubernetes-in-Docker (Kind). This allows developers to run a full, containerized instance of the platform on their local machine.' },
+                    'ADR-002': { title: 'Use GitHub Codespaces for QA', content: 'For consistent and isolated QA environments, we will leverage GitHub Codespaces. This provides a cloud-based, containerized, and repeatable environment, ensuring that QA testing is not affected by local machine variations.' },
+                    'ADR-003': { title: 'Use DigitalOcean for Staging', content: 'The staging environment will be hosted on DigitalOcean Kubernetes (DOKS). This provides a production-like environment at a reasonable cost, allowing for realistic pre-production testing.' },
+                    'ADR-004': { title: 'Use Terraform for Infrastructure as Code', content: 'All cloud infrastructure (DigitalOcean, etc.) will be managed using Terraform. This ensures that infrastructure is version-controlled, repeatable, and can be provisioned and updated automatically.' }
+                },
+                hasDiagram: true,
+                hasDeployment: true,
+                hasTesting: true
+            },
+            'auth-api': { name: '🔑 Auth API Service', type: 'service', adrCount: 2, hasSequence: true, hasApiContract: true, hasTesting: true, hasDeployment: true },
+            'access-control': { name: '🛡️ Access Control Service', type: 'service', adrCount: 2, hasSequence: true, hasApiContract: true, hasTesting: true, hasDeployment: true },
+            'admin-dashboard': { name: '📊 Admin Dashboard', type: 'service', adrCount: 1, hasSequence: true, hasApiContract: true, hasTesting: true, hasDeployment: true },
+            'keycloak': { name: '🔐 Keycloak (Auth)', type: 'tool', adrCount: 3, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'mongodb': { name: '🍃 MongoDB (Database)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'neo4j': { name: '🕸️ Neo4j (Graph DB)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'api-gateway': { name: '🌐 API Gateway (APISIX)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'linkerd': { name: '🔗 Linkerd (Service Mesh)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'vault': { name: '🔒 Vault (Secrets)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'monitoring': { name: '📈 Monitoring', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+        };
+
+        let approvalState = {};
+        let currentContentId = '';
+        let currentSubSection = '';
+
+        // --- INITIALIZATION ---
+        function initializeState() {
+            approvalState = { 'system-context': { main: 'pending' } };
+            for (const id in contentData) {
+                if (id === 'system-context') continue;
+                const meta = contentData[id];
+                approvalState[id] = {};
+                if (meta.adr) {
+                    approvalState[id].adr = {};
+                    for (const adrId in meta.adr) {
+                        approvalState[id].adr[adrId] = 'pending';
+                    }
+                }
+                if (meta.hasDiagram) approvalState[id].diagram = 'pending';
+                if (meta.hasSequence) approvalState[id].sequence = 'pending';
+                if (meta.hasApiContract) approvalState[id].apiContract = 'pending';
+                if (meta.hasTesting) approvalState[id].testing = 'pending';
+                if (meta.hasDeployment) approvalState[id].deployment = 'pending';
+            }
+        }
+
+        function generateMenu() {
+            const menuContainer = document.getElementById('main-menu');
+            const categories = {
+                main: { title: 'System Overview', items: [] },
+                platform: { title: 'Platform', items: [] },
+                service: { title: 'Services', items: [] },
+                tool: { title: 'Platform Tools', items: [] }
+            };
+
+            for (const id in contentData) {
+                categories[contentData[id].type].items.push(id);
+            }
+
+            let menuHtml = '';
+            for (const catKey in categories) {
+                const category = categories[catKey];
+                if (category.items.length === 0) continue;
+                
+                menuHtml += `<div class="mb-6">
+                    <h3 class="text-xl font-bold text-orange-400 mb-2">${category.title}</h3>`;
+
+                category.items.forEach(id => {
+                    const meta = contentData[id];
+                    if (catKey === 'main') {
+                        menuHtml += `<button class="menu-link w-full text-left text-sm font-semibold p-3 rounded-lg hover:bg-slate-700" onclick="showContent('${id}')">
+                            <span>${meta.name}</span>
+                            <span id="${id}-status" class="approval-status status-pending">PENDING</span>
+                        </button>`;
+                    } else {
+                        menuHtml += `
+                            <div class="menu-item">
+                                <button class="menu-link w-full text-left text-sm font-semibold p-2 rounded-lg hover:bg-slate-700" onclick="toggleSubmenu('${id}')">
+                                    <span>${meta.name}</span>
+                                    <svg class="submenu-toggle w-4 h-4 text-orange-400" id="${id}-toggle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                </button>
+                                <div class="submenu hidden mt-2 pl-4 space-y-1" id="${id}-submenu">
+                                    ${meta.adr ? `<button class="block w-full text-left text-sm p-2 rounded hover:bg-slate-700" onclick="showContent('${id}', 'adr')"><span>📄 ADRs</span> <span id="${id}-adr-status" class="approval-status status-pending">PENDING</span></button>` : ''}
+                                    ${meta.hasDiagram ? `<button class="block w-full text-left text-sm p-2 rounded hover:bg-slate-700" onclick="showContent('${id}', 'diagram')"><span>🗺️ System Diagram</span> <span id="${id}-diagram-status" class="approval-status status-pending">PENDING</span></button>` : ''}
+                                    ${meta.hasSequence ? `<button class="block w-full text-left text-sm p-2 rounded hover:bg-slate-700" onclick="showContent('${id}', 'sequence')"><span>🔄 Sequence Diagram</span> <span id="${id}-sequence-status" class="approval-status status-pending">PENDING</span></button>` : ''}
+                                    ${meta.hasApiContract ? `<button class="block w-full text-left text-sm p-2 rounded hover:bg-slate-700" onclick="showContent('${id}', 'apiContract')"><span>📜 API Contract</span> <span id="${id}-apiContract-status" class="approval-status status-pending">PENDING</span></button>` : ''}
+                                    ${meta.hasTesting ? `<button class="block w-full text-left text-sm p-2 rounded hover:bg-slate-700" onclick="showContent('${id}', 'testing')"><span>🧪 Testing</span> <span id="${id}-testing-status" class="approval-status status-pending">PENDING</span></button>` : ''}
+                                    ${meta.hasDeployment ? `<button class="block w-full text-left text-sm p-2 rounded hover:bg-slate-700" onclick="showContent('${id}', 'deployment')"><span>🚀 Deployment</span> <span id="${id}-deployment-status" class="approval-status status-pending">PENDING</span></button>` : ''}
+                                </div>
+                            </div>`;
+                    }
+                });
+                menuHtml += `</div><div class="my-4 border-t border-slate-700"></div>`;
+            }
+            menuContainer.innerHTML = menuHtml;
+        }
+
+        // --- UI TOGGLES & DISPLAY ---
+        function toggleSubmenu(id) {
+            document.getElementById(id + '-submenu').classList.toggle('hidden');
+            document.getElementById(id + '-toggle').classList.toggle('rotate');
+        }
+
+        function showContent(id, subSection = 'main') {
+            currentContentId = id;
+            currentSubSection = subSection;
+            const contentArea = document.getElementById('content-area');
+            
+            const contentGenerators = {
+                'system-context': getSystemContextContent,
+                'platform-setup': getPlatformSetupContent,
+                'default': getServiceContent
+            };
+
+            const generator = contentGenerators[id] || contentGenerators['default'];
+            contentArea.innerHTML = generator(id, subSection);
+            
+            updateAlert(id, subSection);
+        }
+
+        // --- DYNAMIC CONTENT GENERATION ---
+        function getSystemContextContent() {
+            return `
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-3xl font-bold text-white">System Context Diagram</h2>
+                    <div class="flex space-x-4">
+                        <button onclick="handleApproval('system-context', 'main', true)" class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium">✅ Approve</button>
+                        <button onclick="handleApproval('system-context', 'main', false)" class="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium">❌ Reject</button>
+                    </div>
+                </div>
+                <div class="bg-slate-700/30 rounded-xl p-6 mb-6">
+                    <h3 class="text-xl font-semibold text-orange-400 mb-4">Nexus Platform Architecture</h3>
+                    <div class="diagram-container text-xs">
+                        <svg width="100%" height="500" viewBox="0 0 1200 500">
+                            <!-- Diagram SVG from previous step -->
+                                <g>
+                                    <rect x="20" y="20" width="120" height="50" rx="10" fill="#374151" stroke="#10b981" stroke-width="2"/>
+                                    <text x="80" y="50" font-size="14" fill="#10b981" text-anchor="middle">Developers</text>
+                                </g>
+                                <g>
+                                    <rect x="20" y="120" width="120" height="50" rx="10" fill="#374151" stroke="#10b981" stroke-width="2"/>
+                                    <text x="80" y="150" font-size="14" fill="#10b981" text-anchor="middle">End Users</text>
+                                </g>
+                                <g>
+                                    <rect x="20" y="220" width="120" height="50" rx="10" fill="#374151" stroke="#10b981" stroke-width="2"/>
+                                    <text x="80" y="250" font-size="14" fill="#10b981" text-anchor="middle">Administrators</text>
+                                </g>
+                                <g>
+                                    <rect x="20" y="320" width="120" height="50" rx="10" fill="#374151" stroke="#10b981" stroke-width="2"/>
+                                    <text x="80" y="350" font-size="14" fill="#10b981" text-anchor="middle">CI/CD Pipeline</text>
+                                </g>
+                                <g>
+                                    <rect x="20" y="420" width="120" height="50" rx="10" fill="#374151" stroke="#10b981" stroke-width="2"/>
+                                    <text x="80" y="450" font-size="14" fill="#10b981" text-anchor="middle">External IDPs</text>
+                                </g>
+                                <rect x="200" y="10" width="800" height="480" rx="20" fill="none" stroke="#fbbf24" stroke-width="3" stroke-dasharray="10 5"/>
+                                <text x="600" y="40" font-size="20" fill="#fbbf24" text-anchor="middle" font-weight="bold">Nexus Platform</text>
+                                <g>
+                                    <rect x="220" y="70" width="180" height="50" rx="10" fill="#0f172a" stroke="#f97316" stroke-width="2"/>
+                                    <text x="310" y="100" font-size="14" fill="#f97316" text-anchor="middle">API Gateway (APISIX)</text>
+                                </g>
+                                <g>
+                                    <rect x="220" y="140" width="180" height="50" rx="10" fill="#0f172a" stroke="#f97316" stroke-width="2"/>
+                                    <text x="310" y="170" font-size="14" fill="#f97316" text-anchor="middle">Service Mesh (Linkerd)</text>
+                                </g>
+                                <g>
+                                    <rect x="450" y="70" width="200" height="180" rx="10" fill="#0f172a" stroke="#3b82f6" stroke-width="2"/>
+                                    <text x="550" y="90" font-size="16" fill="#3b82f6" text-anchor="middle">Microservices</text>
+                                    <text x="550" y="120" font-size="12" fill="white" text-anchor="middle">• Auth API Service</text>
+                                    <text x="550" y="140" font-size="12" fill="white" text-anchor="middle">• Access Control Service</text>
+                                    <text x="550" y="160" font-size="12" fill="white" text-anchor="middle">• Admin Dashboard Service</text>
+                                    <text x="550" y="180" font-size="12" fill="white" text-anchor="middle">• ... other services</text>
+                                </g>
+                                <g>
+                                    <rect x="700" y="70" width="280" height="300" rx="10" fill="#0f172a" stroke="#a855f7" stroke-width="2"/>
+                                    <text x="840" y="90" font-size="16" fill="#a855f7" text-anchor="middle">Platform Tools</text>
+                                    <rect x="720" y="110" width="120" height="40" rx="5" fill="#1e293b" stroke="#a855f7"/>
+                                    <text x="780" y="135" font-size="12" fill="white" text-anchor="middle">Keycloak</text>
+                                    <rect x="860" y="110" width="100" height="40" rx="5" fill="#1e293b" stroke="#a855f7"/>
+                                    <text x="910" y="135" font-size="12" fill="white" text-anchor="middle">Vault</text>
+                                    <rect x="720" y="170" width="120" height="40" rx="5" fill="#1e293b" stroke="#a855f7"/>
+                                    <text x="780" y="195" font-size="12" fill="white" text-anchor="middle">MongoDB</text>
+                                    <rect x="860" y="170" width="100" height="40" rx="5" fill="#1e293b" stroke="#a855f7"/>
+                                    <text x="910" y="195" font-size="12" fill="white" text-anchor="middle">Neo4j</text>
+                                    <rect x="720" y="230" width="240" height="40" rx="5" fill="#1e293b" stroke="#a855f7"/>
+                                    <text x="840" y="255" font-size="12" fill="white" text-anchor="middle">Monitoring (Prometheus, Grafana)</text>
+                                </g>
+                                <path d="M145,145 C180,145 180,95 220,95" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M145,245 C180,245 180,95 220,95" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M400,95 H 450" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M400,165 H 450" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M650,160 C675,160 675,185 700,185" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M650,140 C675,140 675,130 720,130" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M145,445 C180,445 180,130 720,130" stroke="white" fill="none" stroke-width="1.5"/>
+                                <path d="M145,45 C250,45 250,345 380,345" stroke="white" fill="none" stroke-width="1.5"/>
+                        </svg>
+                    </div>
+                </div>
+                <div id="alert-container"></div>
+            `;
+        }
+
+        function getPlatformSetupContent(id, subSection) {
+            const meta = contentData[id];
+            const subSectionTitles = {
+                'adr': 'Architecture Decision Records',
+                'diagram': 'System Diagram',
+                'deployment': 'Deployment Plan & Scripts',
+                'testing': 'Testing Strategy'
+            };
+            let html = `<div class="flex items-center justify-between mb-6">
+                            <h2 class="text-3xl font-bold text-white">${meta.name} - ${subSectionTitles[subSection]}</h2>
+                        </div>`;
+            
+            const contentGenerators = {
+                'adr': getAdrContent,
+                'diagram': getPlatformDiagramContent,
+                'deployment': getPlatformDeploymentContent,
+                'testing': getPlatformTestingContent
+            };
+            html += contentGenerators[subSection](id);
+            html += `<div id="alert-container"></div>`;
+            return html;
+        }
+
+        function getServiceContent(id, subSection) {
+             const meta = contentData[id];
+            const subSectionTitles = {
+                'adr': 'Architecture Decision Records',
+                'sequence': 'Sequence Diagram',
+                'apiContract': 'API Contract',
+                'testing': 'Testing Status',
+                'deployment': 'Deployment Plan & Scripts',
+            };
+            let html = `<div class="flex items-center justify-between mb-6">
+                            <h2 class="text-3xl font-bold text-white">${meta.name} - ${subSectionTitles[subSection]}</h2>
+                        </div>`;
+            html += `<p>Content for ${id} - ${subSection}</p>`;
+            html += `<div id="alert-container"></div>`;
+            return html;
+        }
+
+        function getAdrContent(id) {
+            const meta = contentData[id];
+            let adrHtml = `<div class="bg-slate-700/30 rounded-xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-orange-400">Architecture Decision Records</h3>
+                    <button class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg">+ Add New ADR</button>
+                </div>`;
+
+            const adrStates = approvalState[id].adr;
+            for (const adrId in adrStates) {
+                const status = adrStates[adrId];
+                const adrData = meta.adr[adrId];
+                adrHtml += `
+                    <div class="mb-6 bg-slate-800/50 rounded-lg p-4 border ${status === 'approved' ? 'border-green-500' : status === 'rejected' ? 'border-red-500' : 'border-slate-600'}">
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-lg font-semibold text-white mb-1">${adrId}: ${adrData.title}</h4>
+                            <div class="flex space-x-2">
+                                <button onclick="handleApproval('${id}', 'adr', true, '${adrId}')" class="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Approve</button>
+                                <button onclick="handleApproval('${id}', 'adr', false, '${adrId}')" class="px-3 py-1 text-xs bg-red-600 hover:bg-red-700 rounded">Reject</button>
+                            </div>
+                        </div>
+                        <p class="text-white/70 text-sm mb-2">${adrData.content}</p>
+                        <div class="flex justify-between items-center">
+                            <div class="text-xs font-bold uppercase ${status === 'approved' ? 'text-green-400' : status === 'rejected' ? 'text-red-400' : 'text-amber-400'}">Status: ${status}</div>
+                            <button class="gemini-button">✨ Write with Gemini</button>
+                        </div>
+                    </div>`;
+            }
+            adrHtml += `</div>`;
+            return adrHtml;
+        }
+
+        function getPlatformDiagramContent(id) {
+            return `<div class="bg-slate-700/30 rounded-xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-orange-400">Environment Promotion Flow</h3>
+                     <div class="flex space-x-2">
+                        <button onclick="handleApproval('${id}', 'diagram', true)" class="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Approve</button>
+                        <button onclick="handleApproval('${id}', 'diagram', false)" class="px-3 py-1 text-xs bg-red-600 hover:bg-red-700 rounded">Reject</button>
+                    </div>
+                </div>
+                <div class="diagram-container">
+                    <p class="text-white/70">This diagram illustrates how code and artifacts move from development to production across different hosting environments.</p>
+                    <img src="https://placehold.co/800x400/1e293b/fbbf24?text=Dev+(Kind)+->+QA+(Codespaces)+->+Staging+(DO)+->+Prod" alt="Environment Diagram" class="mt-4 rounded-lg">
+                </div>
+            </div>`;
+        }
+
+        function getPlatformDeploymentContent(id) {
+            return `<div class="bg-slate-700/30 rounded-xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-orange-400">Deployment Scripts & IaC</h3>
+                     <div class="flex space-x-2">
+                        <button onclick="handleApproval('${id}', 'deployment', true)" class="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Approve</button>
+                        <button onclick="handleApproval('${id}', 'deployment', false)" class="px-3 py-1 text-xs bg-red-600 hover:bg-red-700 rounded">Reject</button>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <p class="text-white/70">The following scripts and codebases are responsible for setting up and deploying the platform infrastructure.</p>
+                    <div class="bg-slate-900 rounded p-3 font-mono text-sm text-cyan-300">
+                        <p>// Main cluster setup script</p>
+                        <p>scripts/deploy/cluster-setup.sh</p>
+                    </div>
+                    <div class="bg-slate-900 rounded p-3 font-mono text-sm text-cyan-300">
+                        <p>// Terraform root for cloud infrastructure</p>
+                        <p>iac/terraform/environments/...</p>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function getPlatformTestingContent(id) {
+            return `<div class="bg-slate-700/30 rounded-xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-orange-400">Platform Testing Strategy</h3>
+                     <div class="flex space-x-2">
+                        <button onclick="handleApproval('${id}', 'testing', true)" class="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Approve</button>
+                        <button onclick="handleApproval('${id}', 'testing', false)" class="px-3 py-1 text-xs bg-red-600 hover:bg-red-700 rounded">Reject</button>
+                    </div>
+                </div>
+                <div class="space-y-4 text-white/80">
+                    <div class="bg-slate-800/50 p-3 rounded-lg">
+                        <h4 class="font-semibold text-white">Unit Testing</h4>
+                        <p class="text-sm">Unit tests will be written for individual shell script functions using a framework like 'shunit2' to ensure logical correctness of setup steps.</p>
+                    </div>
+                    <div class="bg-slate-800/50 p-3 rounded-lg">
+                        <h4 class="font-semibold text-white">Integration Testing</h4>
+                        <p class="text-sm">Integration tests will involve running the orchestrator script ('scripts/deploy/orchestrator.sh') against a live Kind cluster to verify that all components deploy successfully and can communicate.</p>
+                    </div>
+                    <div class="bg-slate-800/50 p-3 rounded-lg">
+                        <h4 class="font-semibold text-white">Performance Testing</h4>
+                        <p class="text-sm">For cloud environments, Terraform plans will be analyzed for cost and resource allocation. Deployment times will be measured to ensure they are within acceptable limits for CI/CD pipelines.</p>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- APPROVAL LOGIC ---
+        function handleApproval(id, subSection, isApproved, adrId = null) {
+            const reason = isApproved ? '' : prompt('Please provide feedback for rejection:');
+            if (!isApproved && !reason) return;
+
+            if (subSection === 'adr' && adrId) {
+                approvalState[id].adr[adrId] = isApproved ? 'approved' : 'rejected';
+            } else {
+                approvalState[id][subSection] = isApproved ? 'approved' : 'rejected';
+            }
+            updateAllUI();
+        }
+
+        // --- UI UPDATES ---
+        function updateAllUI() {
+            // Update all status badges in the menu
+            for (const id in approvalState) {
+                for (const section in approvalState[id]) {
+                    let status;
+                    let elementId;
+                    if (section === 'adr') {
+                        const adrStatuses = Object.values(approvalState[id].adr);
+                        status = 'pending';
+                        if (adrStatuses.every(s => s === 'approved')) status = 'approved';
+                        else if (adrStatuses.some(s => s === 'rejected')) status = 'rejected';
+                        elementId = `${id}-adr-status`;
+                    } else {
+                        status = approvalState[id][section];
+                        elementId = id === 'system-context' ? 'system-context-status' : `${id}-${section}-status`;
+                    }
+                    updateStatusElement(elementId, status);
+                }
+            }
+
+            // Refresh content if a view is active
+            if (currentContentId) {
+                showContent(currentContentId, currentSubSection);
+            } else {
+                showContent('system-context');
+            }
+            
+            updateDevelopmentStatus();
+        }
+
+        function updateStatusElement(elementId, status) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.className = `approval-status status-${status.replace('/', '')}`;
+                element.textContent = status.toUpperCase();
+            }
+        }
+
+        function updateAlert(id, subSection) {
+            const container = document.getElementById('alert-container');
+            if (!container) return;
+
+            let status;
+            if (subSection === 'adr') {
+                const adrStatuses = Object.values(approvalState[id].adr);
+                status = 'pending';
+                if (adrStatuses.every(s => s === 'approved')) status = 'approved';
+                else if (adrStatuses.some(s => s === 'rejected')) status = 'rejected';
+            } else {
+                status = approvalState[id][subSection];
+            }
+            
+            const message = {
+                pending: `<strong>APPROVAL REQUIRED:</strong> This section must be approved.`,
+                approved: `<strong>✅ APPROVED:</strong> This section has been approved.`,
+                rejected: `<strong>❌ REJECTED:</strong> This section requires revision.`
+            };
+            
+            const alertColor = status === 'approved' ? 'green' : status === 'rejected' ? 'red' : 'amber';
+            container.innerHTML = `
+                <div class="mt-6 p-4 bg-${alertColor}-900/20 border border-${alertColor}-400/30 rounded-lg">
+                    <div class="flex items-center">
+                        <div class="text-${alertColor}-400 mr-3">${status === 'approved' ? '✅' : status === 'rejected' ? '❌' : '⚠️'}</div>
+                        <div><span class="text-white/80">${message[status]}</span></div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function updateDevelopmentStatus() {
+            const devStatusDiv = document.querySelector('.text-lg.font-bold');
+            let allApproved = true;
+            for (const id in approvalState) {
+                for (const section in approvalState[id]) {
+                    if (section === 'adr') {
+                        if (Object.values(approvalState[id].adr).some(s => s !== 'approved')) {
+                            allApproved = false;
+                            break;
+                        }
+                    } else if (approvalState[id][section] !== 'approved' && approvalState[id][section] !== 'n/a') {
+                        allApproved = false;
+                        break;
+                    }
+                }
+                if (!allApproved) break;
+            }
+
+            if (allApproved) {
+                devStatusDiv.textContent = 'APPROVED';
+                devStatusDiv.className = 'text-lg font-bold text-green-400';
+            } else {
+                devStatusDiv.textContent = 'BLOCKED';
+                devStatusDiv.className = 'text-lg font-bold text-red-400';
+            }
+        }
+
+        // --- SCRIPT START ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeState();
+            generateMenu();
+            showContent('system-context');
+            updateAllUI();
+        });
+    </script>
+</body>
+</html>
