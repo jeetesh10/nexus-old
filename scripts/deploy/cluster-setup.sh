@@ -164,6 +164,10 @@ setup_kind_cluster() {
         fi
         success "Successfully created cluster '$KIND_CLUSTER_NAME'."
     fi
+
+    info "Creating core platform namespaces..."
+    kubectl create namespace nexus-platform || true
+    kubectl create namespace nexus-services || true
     
     info "Verifying cluster context..."
     kubectl cluster-info --context "kind-$KIND_CLUSTER_NAME"

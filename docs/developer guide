@@ -1,0 +1,438 @@
+Nexus Project: Complete Developer Guide
+
+This document is a comprehensive, production-ready blueprint for the Nexus Project. It guides a developer or agent through the entire process of setting up a highly scalable and secure local environment, building a microservice, and preparing it for automated deployment to a production environment.
+
+1. Context and Project Overview
+
+The Nexus Project is a foundational container infrastructure platform leveraging Docker and Kubernetes to establish a standardized, secure, and scalable environment for future containerized applications. This platform aims to accelerate the time-to-market for new services by providing a pre-built infrastructure that handles core concerns like consistency, efficient deployment, and secure communication1. This guide details a complete, production-grade workflow that includes advanced scalability, security, and automation practices, moving beyond the initial "platform skeleton" to a fully functional system2222.
+
+
+2. Project Structure and Technology Used
+
+The project uses a
+multi-repository strategy where each microservice, shared library, and infrastructure component resides in its own GitHub repository, promoting independent development and autonomy3. This guide focuses on building a single
+
+admin-dashboard-service repository to demonstrate the full development lifecycle.
+Project Structure Visual
+The following Mermaid diagram illustrates the high-level organization of the project's repositories 4.
+
+Code snippet
+
+
+graph TD
+    A[your-github-organization-name] --> B(services/)
+    A --> C(shared-libraries/)
+    A --> D(platform-infra/)
+    A --> E(docs/)
+    B --> F[admin-dashboard-service/]
+    B --> G[...]
+    C --> H[python-common-utils/]
+    C --> I[...]
+    D --> J[kubernetes-base-config/]
+    D --> K[...]
+    E --> L[architecture-decision-records/]
+    E --> M[platform-overview.md]
+
+
+Key technologies used include:
+Docker & Kubernetes (kind, Helm): For containerization, local cluster orchestration, and managing complex deployments5.
+
+
+Python FastAPI: To build high-performance APIs for services6.
+
+
+Prometheus, Grafana, & Alertmanager: The observability stack for metrics, visualization, and alerting7.
+
+
+Loki: A logging system for centralized log collection and querying8.
+
+
+Kubernetes Python Client: Enables the FastAPI backend to interact with the Kubernetes API to manage services.
+Pytest & Locust: Testing frameworks for unit/integration testing and load testing, respectively.
+GitHub Actions: The CI/CD tool for automating builds, tests, and deployments.
+Nexus: The project's artifact repository for storing production-ready artifacts 9999.
+
+
+
+3. Capabilities and Tasks
+
+
+Capability: Enable a Production-Ready Local Environment
+
+This capability covers setting up a local kind cluster and deploying a highly available monitoring, alerting, and logging stack with persistent storage, a production-grade Ingress controller, and secure configurations.
+
+Task: Install and Configure kind for Local Development
+
+This task guides the user through installing kind and creating a cluster with a persistent volume and the necessary port mappings.
+Prerequisites: Ensure Docker is installed and running on your local machine. Allocate at least 8GB of RAM and 4 CPU cores to Docker to prevent resource-related pod failures during load testing.
+Install kind, kubectl, and helm:
+macOS/Linux: brew install kind kubectl helm
+Windows: Use choco install kind kubectl kubernetes-helm or follow the official documentation.
+Create a Persistent kind Cluster: Create a kind-config-persistent.yaml file to define the cluster with a host-path volume for data persistence and port mappings for the observability stack and our services.
+kind-config-persistent.yaml:
+YAML
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraMounts:
+  - hostPath: /tmp/kind-data
+    containerPath: /data
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    listenAddress: "127.0.0.1"
+    protocol: tcp
+  - containerPort: 443
+    hostPort: 443
+    listenAddress: "127.0.0.1"
+    protocol: tcp
+
+
+Create the Cluster:
+kind create cluster --config kind-config-persistent.yaml
+Manual Verification:
+Open your terminal and run kubectl get nodes.
+Expected Output: The output should show a single node named kind-control-plane with a Ready status.
+Next, run docker ps --filter "name=kind-control-plane".
+Expected Output: You should see the kind container running. Verify the PORTS column shows the mapped ports (80 and 443).
+
+Task: Deploy the Observability and Logging Stack with Helm
+
+This task uses Helm to deploy a production-ready observability stack, which is more robust than a basic YAML manifest.
+Add Helm Repositories:
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo add loki https://grafana.github.io/loki/charts
+helm repo update
+Create Custom Values File: Create a values-observability.yaml file to customize the Helm chart for local development. This includes enabling persistence, exposing services via NodePort, and configuring Grafana's default password.
+values-observability.yaml:
+YAML
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+grafana:
+  adminPassword: admin
+  persistence:
+    type: hostPath
+    enabled: true
+    size: 2Gi
+    existingClaim: ""
+    storageClassName: ""
+    accessModes: ["ReadWriteOnce"]
+loki:
+  persistence:
+    size: 8Gi
+    storageClassName: ""
+    accessModes: ["ReadWriteOnce"]
+
+
+Deploy the Stack:
+helm install nexus-observability prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --values values-observability.yaml
+helm install nexus-loki loki/loki-stack --namespace monitoring --create-namespace --values values-observability.yaml
+Manual Verification:
+Run kubectl get pods -n monitoring.
+Expected Output: The output should show pods for nexus-observability-prometheus-oper..., nexus-observability-grafana..., nexus-observability-alertmanager..., and nexus-loki... all in the Running state.
+Verify Grafana Access:
+Run kubectl get services -n monitoring. Find the NodePort for the Grafana service. It will be in the range 30000-32767.
+Open your web browser and navigate to http://localhost:<NodePort>.
+Expected Output: You should be redirected to the Grafana login page. Log in with the credentials (admin/admin).
+Verify Alertmanager Access:
+Find the NodePort for the Alertmanager service using kubectl get services -n monitoring.
+Open your web browser and navigate to http://localhost:<NodePort>.
+Expected Output: You should see the Alertmanager UI, with no active alerts.
+
+Task: Deploy a Production-Grade Ingress Controller
+
+This task sets up NGINX Ingress to provide a stable entry point for all services, replacing the insecure NodePort services.
+Deploy the Ingress Controller:
+helm install nginx-ingress ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
+Manual Verification:
+Run kubectl get pods -n ingress-nginx.
+Expected Output: The output should show the nginx-ingress-controller pod in a Running state.
+
+Capability: Enforce Production-Grade Security and Access Control
+
+This capability focuses on implementing comprehensive RBAC, secrets management, and network policies to secure the cluster.
+
+Task: Implement Fine-Grained RBAC for the Admin Module
+
+This task details the creation of RBAC resources to grant the admin dashboard the necessary permissions to read and control other services.
+Create RBAC Manifests: Create a file named admin-rbac.yaml.
+admin-rbac.yaml:
+YAML
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-dashboard-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: admin-dashboard-role
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "patch", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-dashboard-role-binding
+subjects:
+- kind: ServiceAccount
+  name: admin-dashboard-sa
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: admin-dashboard-role
+  apiGroup: rbac.authorization.k8s.io
+
+
+Deploy the RBAC Rules:
+kubectl apply -f admin-rbac.yaml
+Manual Verification:
+Run kubectl get clusterrole admin-dashboard-role.
+Expected Output: You should see the admin-dashboard-role listed.
+To verify the permissions, run kubectl describe clusterrole admin-dashboard-role.
+Expected Output: Under the Rules section, you should see permissions for get, list, patch, and watch on deployments in the apps API group.
+
+Task: Implement Secrets Management
+
+This task details how to use Kubernetes Secrets to manage sensitive data securely.
+Create a Secret: Use kubectl create secret generic to create a secret. For example, to store the Grafana admin password:
+kubectl create secret generic grafana-admin-secret --from-literal=password='my-strong-password' -n monitoring
+Verify Secret:
+kubectl get secret grafana-admin-secret -n monitoring.
+Expected Output: The secret should be listed.
+
+Capability: Build and Deploy the Admin Dashboard
+
+This capability provides a detailed, step-by-step guide to building the admin dashboard microservice, which serves as a central control point for the platform.
+
+Task: Build the Admin Dashboard Microservice
+
+This task details the backend logic and Dockerization of the admin dashboard, including production-grade optimizations and security best practices.
+Scaffold the Service: Create a new repository and directory structure for the admin-dashboard-service.
+mkdir admin-dashboard-service
+cd admin-dashboard-service
+mkdir src tests kubernetes
+touch Dockerfile requirements.txt README.md src/main.py tests/test_main.py kubernetes/deployment.yaml kubernetes/service.yaml kubernetes/ingress.yaml
+Define Dependencies: Add fastapi, uvicorn, kubernetes, gunicorn, pytest, and httpx to requirements.txt.
+requirements.txt:
+fastapi
+uvicorn
+kubernetes
+gunicorn
+pytest
+httpx
+
+
+Write the Backend Code: This FastAPI app uses the kubernetes client to list, start, and stop services.
+src/main.py:
+Python
+import os
+from fastapi import FastAPI, HTTPException
+from kubernetes import client, config
+
+app = FastAPI()
+
+try:
+    config.load_incluster_config()
+except config.ConfigException:
+    try:
+        config.load_kube_config()
+    except config.ConfigException:
+        raise RuntimeError("Could not configure Kubernetes client")
+
+v1 = client.AppsV1Api()
+
+@app.get("/api/services")
+def get_services():
+    try:
+        deployments = v1.list_deployment_for_all_namespaces(watch=False)
+        services = []
+        for dep in deployments.items:
+            services.append({
+                "name": dep.metadata.name,
+                "namespace": dep.metadata.namespace,
+                "replicas": dep.spec.replicas,
+                "status": "Running" if dep.status.replicas == dep.spec.replicas and dep.spec.replicas > 0 else "Stopped"
+            })
+        return {"services": services}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/services/{name}/stop")
+def stop_service(name: str):
+    body = {"spec": {"replicas": 0}}
+    v1.patch_namespaced_deployment(name=name, namespace="default", body=body)
+    return {"status": f"Service {name} stopped"}
+
+@app.post("/api/services/{name}/start")
+def start_service(name: str):
+    body = {"spec": {"replicas": 1}} # Assumes 1 replica, can be more dynamic
+    v1.patch_namespaced_deployment(name=name, namespace="default", body=body)
+    return {"status": f"Service {name} started"}
+
+
+Create the Dockerfile: This Dockerfile builds the container image for the service and uses Gunicorn for production-grade concurrency.
+Dockerfile:
+Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+
+RUN useradd -m myuser
+USER myuser
+
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "src.main:app", "--bind", "0.0.0.0:8000"]
+
+
+Build and Deploy the Admin Module:
+docker build -t admin-dashboard-service:latest .
+Create kubernetes/deployment.yaml, kubernetes/service.yaml, and kubernetes/ingress.yaml to deploy the service.
+admin-deployment.yaml:
+YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-dashboard
+  labels:
+    app: admin-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-dashboard
+  template:
+    metadata:
+      labels:
+        app: admin-dashboard
+    spec:
+      serviceAccountName: admin-dashboard-sa
+      containers:
+      - name: admin-dashboard
+        image: admin-dashboard-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+
+
+admin-service.yaml:
+YAML
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-dashboard-internal
+spec:
+  selector:
+    app: admin-dashboard
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+
+
+admin-ingress.yaml:
+YAML
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-dashboard-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: admin-dashboard.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-dashboard-internal
+            port:
+              number: 80
+
+
+Apply the manifests: kubectl apply -f kubernetes/
+Manual Verification:
+Run kubectl get pods -l app=admin-dashboard.
+Expected Output: You should see a pod with a name like admin-dashboard-xxxx in a Running state.
+Verify API Access: The Ingress controller now manages access. Add 127.0.0.1 admin-dashboard.local to your /etc/hosts file. Then, run curl http://admin-dashboard.local/api/services.
+Expected Output: The command should return a JSON array of services, which will be empty at this point, but confirms the API is live and accessible via the Ingress.
+
+4. Testing Strategy and Test Cases
+
+The testing strategy is layered, covering unit tests, integration tests, and end-to-end (E2E) observability and control tests.
+
+Test Case: Comprehensive API Functionality
+
+Objective: Verify the API endpoints for listing, starting, and stopping services work correctly.
+Steps:
+Deploy a sample service with a deployment.
+Use a POST request to http://admin-dashboard.local/api/services/<service-name>/stop.
+Verify the service's pod count drops to zero by running kubectl get pods.
+Use a POST request to http://admin-dashboard.local/api/services/<service-name>/start.
+Verify the service's pod count returns to the desired number.
+Success Criteria: All API calls return a 200 OK status, and the kubectl commands confirm the deployment state changes as expected.
+
+Test Case: End-to-End Observability and Logging
+
+Objective: Verify that a sample service's metrics are scraped by Prometheus, logs are collected by Loki, and alerts are properly triggered by Alertmanager.
+Steps:
+Deploy a sample service with metrics and logging enabled.
+Generate traffic to the sample service, including errors, by hitting the /error endpoint.
+Access the Prometheus UI at http://localhost:30001 and navigate to the "Alerts" tab.
+Access the Alertmanager UI at http://localhost:30003 to confirm the alert has been received.
+Access the Grafana UI at http://localhost:30002 and navigate to the "Explore" tab. Select the Loki data source.
+Use a LogQL query like {app="<service-name>"} to find the service's logs.
+Success Criteria: The Prometheus alert fires as expected, the alert is propagated to Alertmanager, and the service's JSON logs are visible in Grafana.
+
+5. Deployment Plan
+
+The deployment plan outlines a phased approach across development, QA, and production environments, with a strong focus on CI/CD automation for production readiness.
+
+Dev Environment (Local)
+
+Platform: A kind cluster running on a developer's local machine.
+Process: Developers build and test their services locally, using the provided manifests and scripts. The kind cluster includes the full observability stack and the admin dashboard for a complete development experience.
+Artifacts: Docker images are built locally and used within the kind cluster with imagePullPolicy: Never.
+
+QA Environment (DigitalOcean)
+
+Platform: A provisioned DigitalOcean Kubernetes (DOKS) cluster.
+Process: Services are deployed using their standard Kubernetes manifests. The observability stack and admin dashboard are also deployed here to ensure they function correctly in a cloud environment.
+Artifacts: Docker images are pushed to a container registry, and manifests are updated to pull from the registry.
+Verification: Comprehensive E2E tests are run, and the admin dashboard is used to monitor service health and trigger test scenarios.
+
+Production Environment (AWS/GCP)
+
+Platform: A managed Kubernetes service on AWS (EKS) or GCP (GKE).
+Process: Deployment to production will be automated via CI/CD pipelines. The observability stack will likely be deployed using a Helm chart for a more robust and scalable solution.
+Security: Access to the admin dashboard will be secured with a centralized identity provider, and strict network policies will be enforced.
+Scaling: The platform is designed for horizontal scalability, allowing for the easy addition of nodes to accommodate growth.

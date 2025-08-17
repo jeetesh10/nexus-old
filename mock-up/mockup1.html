@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Website Mockup</title>
+    <!-- Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Custom Google Fonts for a more stylish feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400..700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .font-dancing {
+            font-family: 'Dancing Script', cursive;
+        }
+        .menu-link {
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .menu-link.active {
+            color: #fde047; /* amber-300 */
+        }
+        .submenu-toggle {
+            transition: transform 0.2s;
+        }
+        .submenu-toggle.rotate {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-950 text-white p-4 sm:p-8 min-h-screen flex flex-col space-y-8">
+
+    <!-- Header -->
+    <div class="bg-slate-800/50 backdrop-blur-sm rounded-3xl shadow-2xl p-4 sm:p-6 border border-orange-400/20 z-[100] mx-auto max-w-7xl w-full">
+        <nav class="container mx-auto flex items-center justify-between">
+            <!-- Left Section: Logo -->
+            <div>
+                <img src="https://placehold.co/60x60/fde047/1f2937?text=NEXUS" alt="Nexus Logo" class="w-12 h-12 sm:w-16 sm:h-16 rounded-xl shadow-lg hover:rotate-6 transition-transform duration-300">
+            </div>
+
+            <!-- Center Section: Company Name and Slogan -->
+            <div class="flex-1 flex flex-col items-center justify-center relative">
+                <h1 class="font-dancing text-4xl sm:text-6xl font-bold text-amber-300 text-center tracking-tight">
+                    Welcome to Nexus,
+                </h1>
+                <div class="flex items-center mt-2 space-x-2">
+                    <span id="slogan" class="text-lg sm:text-2xl text-white font-medium italic tracking-normal">
+                        A heart of connections...
+                    </span>
+                    <button id="generate-slogan-btn" class="text-sm text-white/50 hover:text-amber-300 transition-colors">
+                        ✨
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Section: User Profile or Auth Buttons -->
+            <div id="user-section" class="relative">
+                <!-- Logged Out State: Login/Signup Buttons -->
+                <div id="logged-out" class="space-x-2 sm:space-x-4">
+                    <button id="login-btn" class="px-3 py-1 sm:px-4 sm:py-2 text-sm font-medium text-slate-900 bg-amber-300 rounded-full hover:bg-amber-400 transition-colors duration-300 shadow-md">
+                        Login
+                    </button>
+                    <button id="signup-btn" class="px-3 py-1 sm:px-4 sm:py-2 text-sm font-medium text-amber-300 border border-amber-300 rounded-full hover:bg-slate-700 transition-colors duration-300 shadow-md">
+                        Signup
+                    </button>
+                </div>
+
+                <!-- Logged In State: User Profile with Dropdown -->
+                <div id="logged-in" class="hidden">
+                    <div id="profile-button" class="flex items-center space-x-2 cursor-pointer p-1 rounded-full bg-slate-700 hover:bg-slate-600 transition-colors duration-300 shadow-lg">
+                        <img id="user-avatar" src="https://placehold.co/40x40/fde047/1f2937?text=A" alt="User Avatar" class="w-10 h-10 rounded-full border-2 border-amber-300 object-cover">
+                        <span id="username-display" class="font-semibold text-amber-300 hidden sm:block">Hello, Alex</span>
+                        <svg class="w-4 h-4 text-amber-300 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    
+                    <!-- Dropdown menu -->
+                    <div id="profile-dropdown" class="absolute right-0 mt-2 w-48 bg-slate-700/80 backdrop-blur-md border border-white/20 rounded-lg shadow-xl py-2 hidden z-50 transition-all duration-300 transform origin-top-right scale-95 opacity-0">
+                        <a href="#" class="block px-4 py-2 text-sm text-white hover:bg-slate-600 hover:text-amber-300">My Profile</a>
+                        <a href="#" class="block px-4 py-2 text-sm text-white hover:bg-slate-600 hover:text-amber-300">Settings</a>
+                        <a href="#" class="block px-4 py-2 text-sm text-white hover:bg-slate-600 hover:text-amber-300">Help</a>
+                        <div class="border-t border-white/20 my-1"></div>
+                        <a href="#" id="logout-button" class="block px-4 py-2 text-sm text-red-400 hover:bg-red-900/50 hover:text-red-300">Sign out</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content and Sidebar Container -->
+    <div class="flex-grow flex flex-col lg:flex-row space-y-8 lg:space-y-0 lg:space-x-8 mx-auto max-w-7xl w-full">
+        <!-- Left Sidebar Menu -->
+        <aside class="w-full lg:w-64 flex-shrink-0">
+            <div class="bg-slate-800/50 backdrop-blur-sm rounded-3xl shadow-2xl p-4 border border-orange-400/20">
+                <nav class="space-y-2">
+                    <!-- Platform Menu -->
+                    <div class="menu-item">
+                        <button class="menu-link w-full text-left text-sm font-semibold p-2 rounded-lg hover:bg-slate-700">
+                            <span>Platform</span>
+                            <svg class="submenu-toggle w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <div class="submenu hidden mt-2 pl-4 space-y-1">
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Kubernate</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Secrete</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Service Mesh</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">API Gateway</a>
+                        </div>
+                    </div>
+
+                    <!-- Database Menu -->
+                    <div class="menu-item">
+                        <button class="menu-link w-full text-left text-sm font-semibold p-2 rounded-lg hover:bg-slate-700">
+                            <span>Database</span>
+                            <svg class="submenu-toggle w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <div class="submenu hidden mt-2 pl-4 space-y-1">
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Document DB (Mongo)</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Postgres</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Neo4j</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Vector</a>
+                        </div>
+                    </div>
+                    
+                    <!-- Monitoring Menu -->
+                    <div class="menu-item">
+                        <button class="menu-link w-full text-left text-sm font-semibold p-2 rounded-lg hover:bg-slate-700">
+                            <span>Monitoring</span>
+                            <svg class="submenu-toggle w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <div class="submenu hidden mt-2 pl-4 space-y-1">
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Grafana</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Alert manager</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Loki</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Prometheus</a>
+                        </div>
+                    </div>
+
+                    <!-- Service Menu -->
+                    <div class="menu-item">
+                        <button class="menu-link w-full text-left text-sm font-semibold p-2 rounded-lg hover:bg-slate-700">
+                            <span>Service</span>
+                            <svg class="submenu-toggle w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <div class="submenu hidden mt-2 pl-4 space-y-1">
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">ID resolution</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">MongoDB service</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Postgres service</a>
+                            <a href="#" class="block text-sm text-slate-400 hover:text-amber-300">Chat service</a>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Main Content Area with Service Tiles -->
+        <main class="flex-1 space-y-8">
+            <div class="p-8 rounded-3xl bg-slate-800/50 backdrop-blur-sm shadow-2xl border border-orange-400/20">
+                <h2 class="text-3xl font-bold text-center text-white mb-8">Our Services</h2>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <!-- Service Tile 1: ID Resolution -->
+                    <div class="flex flex-col items-center p-6 bg-slate-700/50 rounded-xl shadow-lg border border-white/10 text-center hover:bg-slate-700 transition-colors duration-300">
+                        <div class="p-4 bg-orange-400/10 rounded-full mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-8 h-8 text-orange-400">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 16.5c0-1.879 1.134-3.56 2.879-4.321 1.258-.564 2.68-1.129 4.379-1.129s3.121.565 4.379 1.129c1.745.761 2.879 2.442 2.879 4.321s-1.134 3.56-2.879 4.321-2.68 1.129-4.379 1.129c-1.745-.761-2.879-2.442-2.879-4.321z" />
+                            </svg>
+                        </div>
+                        <h3 class="font-bold text-xl text-orange-400 mb-2">ID Resolution</h3>
+                        <p class="text-sm text-white/70">Seamlessly verify and manage user identities across all our platforms with our secure resolution service.</p>
+                        <button id="generate-id-btn" class="mt-4 px-4 py-2 text-sm font-medium text-slate-900 bg-orange-400 rounded-full hover:bg-orange-500 transition-colors duration-300 shadow-md">
+                            ✨ Generate ID
+                        </button>
+                    </div>
+                    
+                    <!-- Service Tile 2: MongoDB -->
+                    <div class="flex flex-col items-center p-6 bg-slate-700/50 rounded-xl shadow-lg border border-white/10 text-center hover:bg-slate-700 transition-colors duration-300">
+                        <div class="p-4 bg-orange-400/10 rounded-full mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-8 h-8 text-orange-400">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.375 18H10.5a.75.75 0 010-1.5h4.875a.75.75 0 010 1.5zm-4.375-3.75a.75.75 0 01-.75-.75V8.25a.75.75 0 011.5 0v5.25a.75.75 0 01-.75.75z" />
+                            </svg>
+                        </div>
+                        <h3 class="font-bold text-xl text-orange-400 mb-2">MongoDB</h3>
+                        <p class="text-sm text-white/70">Our powerful, managed MongoDB service provides a flexible and scalable database for your modern applications.</p>
+                        <button class="mt-4 px-4 py-2 text-sm font-medium text-slate-900 bg-orange-400 rounded-full hover:bg-orange-500 transition-colors duration-300 shadow-md">Learn More</button>
+                    </div>
+
+                    <!-- Service Tile 3: Authentication -->
+                    <div class="flex flex-col items-center p-6 bg-slate-700/50 rounded-xl shadow-lg border border-white/10 text-center hover:bg-slate-700 transition-colors duration-300">
+                        <div class="p-4 bg-orange-400/10 rounded-full mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-8 h-8 text-orange-400">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6a7.5 7.5 0 00-15 0v4.5m15 0v4.5a7.5 7.5 0 01-15 0v-4.5m15 0H21m-7.5-6h1.5m-7.5 0h-1.5" />
+                        </svg>
+                    </div>
+                    <h3 class="font-bold text-xl text-orange-400 mb-2">Authentication</h3>
+                    <p class="text-sm text-white/70">Secure your applications with our robust authentication service, offering single sign-on and multi-factor authentication.</p>
+                    <button class="mt-4 px-4 py-2 text-sm font-medium text-slate-900 bg-orange-400 rounded-full hover:bg-orange-500 transition-colors duration-300 shadow-md">Learn More</button>
+                </div>
+
+                <!-- Service Tile 4: Visualization -->
+                <div class="flex flex-col items-center p-6 bg-slate-700/50 rounded-xl shadow-lg border border-white/10 text-center hover:bg-slate-700 transition-colors duration-300">
+                    <div class="p-4 bg-orange-400/10 rounded-full mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-8 h-8 text-orange-400">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.107 60.07 60.07 0 01-15.797-2.107zm6.07 2.107a60.07 60.07 0 0115.796-2.107V18m-9.196-10.5v-.5a2.25 2.25 0 00-2.25-2.25v0zM21.75 18v.75a.75.75 0 01-.75.75h-3a.75.75 0 01-.75-.75V18m-9.196-10.5v-.5a2.25 2.25 0 00-2.25-2.25h-.5a2.25 2.25 0 00-2.25 2.25v.5zm9.196 10.5v.75a.75.75 0 01-.75.75h-3a.75.75 0 01-.75-.75V18m-9.196-10.5v-.5a2.25 2.25 0 00-2.25-2.25H3a2.25 2.25 0 00-2.25 2.25v.5z" />
+                        </svg>
+                    </div>
+                    <h3 class="font-bold text-xl text-orange-400 mb-2">Visualization</h3>
+                    <p class="text-sm text-white/70">Transform your data into beautiful, insightful dashboards with our powerful visualization tools and analytics platform.</p>
+                    <button class="mt-4 px-4 py-2 text-sm font-medium text-slate-900 bg-orange-400 rounded-full hover:bg-orange-500 transition-colors duration-300 shadow-md">Learn More</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Session Details Section -->
+    <div class="flex-grow mx-auto max-w-7xl w-full">
+        <div class="p-8 rounded-3xl bg-slate-800/50 backdrop-blur-sm shadow-2xl border border-orange-400/20 mb-8">
+            <h2 class="text-3xl font-bold text-center text-white mb-8">Session Details</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left text-slate-400">
+                    <thead class="text-xs text-orange-400 uppercase bg-slate-700/50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3">Nexus ID</th>
+                            <th scope="col" class="px-6 py-3">External ID</th>
+                            <th scope="col" class="px-6 py-3">Location</th>
+                            <th scope="col" class="px-6 py-3">Device</th>
+                            <th scope="col" class="px-6 py-3">OS</th>
+                            <th scope="col" class="px-6 py-3">Browser</th>
+                            <th scope="col" class="px-6 py-3">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="bg-slate-800/50 border-b border-white/10 hover:bg-slate-700/50 transition-colors duration-300">
+                            <th scope="row" class="px-6 py-4 font-medium text-white whitespace-nowrap">NEX-92847</th>
+                            <td class="px-6 py-4">EXT-30819</td>
+                            <td class="px-6 py-4">New York, USA</td>
+                            <td class="px-6 py-4">Desktop</td>
+                            <td class="px-6 py-4">macOS</td>
+                            <td class="px-6 py-4">Chrome</td>
+                            <td class="px-6 py-4">
+                                <span class="bg-green-500 text-white text-xs font-medium px-2.5 py-0.5 rounded-full">Logged in</span>
+                            </td>
+                        </tr>
+                        <tr class="bg-slate-800/50 border-b border-white/10 hover:bg-slate-700/50 transition-colors duration-300">
+                            <th scope="row" class="px-6 py-4 font-medium text-white whitespace-nowrap">NEX-38741</th>
+                            <td class="px-6 py-4">EXT-74521</td>
+                            <td class="px-6 py-4">London, UK</td>
+                            <td class="px-6 py-4">Mobile</td>
+                            <td class="px-6 py-4">iOS</td>
+                            <td class="px-6 py-4">Safari</td>
+                            <td class="px-6 py-4">
+                                <span class="bg-slate-500 text-white text-xs font-medium px-2.5 py-0.5 rounded-full">Anonymous</span>
+                            </td>
+                        </tr>
+                        <tr class="bg-slate-800/50 border-b border-white/10 hover:bg-slate-700/50 transition-colors duration-300">
+                            <th scope="row" class="px-6 py-4 font-medium text-white whitespace-nowrap">NEX-19852</th>
+                            <td class="px-6 py-4">EXT-81273</td>
+                            <td class="px-6 py-4">Tokyo, Japan</td>
+                            <td class="px-6 py-4">Tablet</td>
+                            <td class="px-6 py-4">Android</td>
+                            <td class="px-6 py-4">Firefox</td>
+                            <td class="px-6 py-4">
+                                <span class="bg-green-500 text-white text-xs font-medium px-2.5 py-0.5 rounded-full">Logged in</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Area -->
+    <div class="mt-8 mx-auto max-w-7xl w-full">
+        <footer class="p-6 rounded-3xl bg-slate-800/50 backdrop-blur-sm shadow-2xl border border-orange-400/20 text-center text-slate-300">
+            <p>&copy; 2025 Nexus. All rights reserved.</p>
+        </footer>
+    </div>
+    
+    <!-- Login Modal -->
+    <div id="login-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[1000] hidden">
+        <div class="relative bg-slate-800/90 backdrop-blur-lg border border-orange-400/20 rounded-3xl shadow-2xl w-full max-w-md p-8">
+            <button id="close-login-modal" class="absolute top-4 right-4 text-white/50 hover:text-white transition-colors duration-300 text-2xl">&times;</button>
+            <h3 class="text-2xl font-bold text-orange-400 mb-6 text-center">Login to Nexus</h3>
+            <form id="login-form">
+                <div class="mb-4">
+                    <label for="login-username" class="block text-sm font-medium text-white/70">Username</label>
+                    <input type="text" id="login-username" class="mt-1 block w-full px-4 py-2 bg-slate-700/50 border border-white/20 rounded-lg shadow-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-400">
+                </div>
+                <div class="mb-6">
+                    <label for="login-password" class="block text-sm font-medium text-white/70">Password</label>
+                    <input type="password" id="login-password" class="mt-1 block w-full px-4 py-2 bg-slate-700/50 border border-white/20 rounded-lg shadow-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-400">
+                </div>
+                <p id="login-error" class="text-sm text-red-400 text-center mb-4 hidden">Invalid username or password.</p>
+                <button type="submit" class="w-full px-4 py-2 text-sm font-medium text-slate-900 bg-orange-400 rounded-full hover:bg-orange-500 transition-colors duration-300 shadow-md">
+                    Sign in
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Signup Modal -->
+    <div id="signup-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[1000] hidden">
+        <div class="relative bg-slate-800/90 backdrop-blur-lg border border-orange-400/20 rounded-3xl shadow-2xl w-full max-w-md p-8">
+            <button id="close-signup-modal" class="absolute top-4 right-4 text-white/50 hover:text-white transition-colors duration-300 text-2xl">&times;</button>
+            <h3 class="text-2xl font-bold text-orange-400 mb-6 text-center">Join Nexus</h3>
+            <form>
+                <div class="mb-4">
+                    <label for="signup-username" class="block text-sm font-medium text-white/70">Username</label>
+                    <input type="text" id="signup-username" class="mt-1 block w-full px-4 py-2 bg-slate-700/50 border border-white/20 rounded-lg shadow-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-400">
+                </div>
+                <div class="mb-4">
+                    <label for="signup-email" class="block text-sm font-medium text-white/70">Email</label>
+                    <input type="email" id="signup-email" class="mt-1 block w-full px-4 py-2 bg-slate-700/50 border border-white/20 rounded-lg shadow-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-400">
+                </div>
+                <div class="mb-6">
+                    <label for="signup-password" class="block text-sm font-medium text-white/70">Password</label>
+                    <div class="relative">
+                        <input type="password" id="signup-password" class="mt-1 block w-full px-4 py-2 pr-12 bg-slate-700/50 border border-white/20 rounded-lg shadow-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-400">
+                        <button id="generate-password-btn" type="button" class="absolute inset-y-0 right-0 pr-3 flex items-center text-sm leading-5 font-medium text-white/50 hover:text-orange-400 transition-colors">
+                            ✨
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="w-full px-4 py-2 text-sm font-medium text-slate-900 bg-orange-400 rounded-full hover:bg-orange-500 transition-colors duration-300 shadow-md">
+                    Create Account
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let isLoggedIn = false;
+            let currentUsername = '';
+
+            const loggedInSection = document.getElementById('logged-in');
+            const loggedOutSection = document.getElementById('logged-out');
+            const usernameDisplay = document.getElementById('username-display');
+            const userAvatar = document.getElementById('user-avatar');
+
+            // Function to update UI based on login status
+            const updateUI = () => {
+                if (isLoggedIn) {
+                    loggedInSection.classList.remove('hidden');
+                    loggedOutSection.classList.add('hidden');
+                    usernameDisplay.textContent = `Hello, ${currentUsername}`;
+                    userAvatar.alt = `User Avatar for ${currentUsername}`;
+                    userAvatar.src = `https://placehold.co/40x40/fde047/1f2937?text=${currentUsername.charAt(0).toUpperCase()}`;
+                } else {
+                    loggedInSection.classList.add('hidden');
+                    loggedOutSection.classList.remove('hidden');
+                    currentUsername = '';
+                }
+            };
+            
+            updateUI(); // Initial UI setup
+
+            // Handle dropdown menu toggle
+            const profileButton = document.getElementById('profile-button');
+            const profileDropdown = document.getElementById('profile-dropdown');
+            
+            if (profileButton) {
+                profileButton.addEventListener('click', (event) => {
+                    profileDropdown.classList.toggle('hidden');
+                    profileDropdown.classList.toggle('scale-100');
+                    profileDropdown.classList.toggle('opacity-100');
+                    profileDropdown.classList.toggle('scale-95');
+                    profileDropdown.classList.toggle('opacity-0');
+                    event.stopPropagation();
+                });
+            }
+
+            document.addEventListener('click', (event) => {
+                if (profileButton && profileDropdown) {
+                    if (!profileDropdown.contains(event.target) && !profileButton.contains(event.target)) {
+                        profileDropdown.classList.add('hidden');
+                        profileDropdown.classList.add('scale-95');
+                        profileDropdown.classList.add('opacity-0');
+                        profileDropdown.classList.remove('scale-100');
+                        profileDropdown.classList.remove('opacity-100');
+                    }
+                }
+            });
+
+            const logoutButton = document.getElementById('logout-button');
+            if (logoutButton) {
+                logoutButton.addEventListener('click', (event) => {
+                    alert('Logging out...');
+                    isLoggedIn = false;
+                    updateUI();
+                    event.preventDefault();
+                });
+            }
+
+            // --- Modal Logic ---
+            const loginBtn = document.getElementById('login-btn');
+            const signupBtn = document.getElementById('signup-btn');
+            const loginModal = document.getElementById('login-modal');
+            const signupModal = document.getElementById('signup-modal');
+            const closeLoginModalBtn = document.getElementById('close-login-modal');
+            const closeSignupModalBtn = document.getElementById('close-signup-modal');
+            const loginForm = document.getElementById('login-form');
+            const loginError = document.getElementById('login-error');
+
+            if (loginBtn) {
+                loginBtn.addEventListener('click', () => {
+                    loginModal.classList.remove('hidden');
+                });
+            }
+
+            if (signupBtn) {
+                signupBtn.addEventListener('click', () => {
+                    signupModal.classList.remove('hidden');
+                });
+            }
+
+            if (closeLoginModalBtn) {
+                closeLoginModalBtn.addEventListener('click', () => {
+                    loginModal.classList.add('hidden');
+                    loginError.classList.add('hidden');
+                });
+            }
+            loginModal.addEventListener('click', (event) => {
+                if (event.target === loginModal) {
+                    loginModal.classList.add('hidden');
+                    loginError.classList.add('hidden');
+                }
+            });
+
+            if (closeSignupModalBtn) {
+                closeSignupModalBtn.addEventListener('click', () => {
+                    signupModal.classList.add('hidden');
+                });
+            }
+            signupModal.addEventListener('click', (event) => {
+                if (event.target === signupModal) {
+                    signupModal.classList.add('hidden');
+                }
+            });
+
+            // --- Collapsible Menu Logic ---
+            const menuItems = document.querySelectorAll('.menu-item');
+            menuItems.forEach(item => {
+                const button = item.querySelector('.menu-link');
+                const submenu = item.querySelector('.submenu');
+                const toggleIcon = item.querySelector('.submenu-toggle');
+
+                if (button && submenu && toggleIcon) {
+                    button.addEventListener('click', () => {
+                        const isHidden = submenu.classList.contains('hidden');
+                        
+                        // Close all other submenus
+                        document.querySelectorAll('.submenu').forEach(sub => sub.classList.add('hidden'));
+                        document.querySelectorAll('.submenu-toggle').forEach(icon => icon.classList.remove('rotate'));
+                        
+                        if (isHidden) {
+                            submenu.classList.remove('hidden');
+                            toggleIcon.classList.add('rotate');
+                        }
+                    });
+                }
+            });
+            
+            // --- Mock Login Functionality ---
+            loginForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const usernameInput = document.getElementById('login-username').value;
+                const passwordInput = document.getElementById('login-password').value;
+
+                if (usernameInput.toLowerCase() === 'alex' && passwordInput === 'Test123') {
+                    isLoggedIn = true;
+                    currentUsername = usernameInput;
+                    loginModal.classList.add('hidden');
+                    loginError.classList.add('hidden');
+                    updateUI();
+                } else {
+                    loginError.classList.remove('hidden');
+                }
+            });
+
+            // --- Gemini API Feature Buttons ---
+            const sloganButton = document.getElementById('generate-slogan-btn');
+            const sloganSpan = document.getElementById('slogan');
+            const passwordButton = document.getElementById('generate-password-btn');
+            const passwordInput = document.getElementById('signup-password');
+            const generateIdBtn = document.getElementById('generate-id-btn');
+            
+            async function callGeminiApi(prompt, retries = 5, delay = 1000) {
+                const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=";
+                const payload = {
+                    contents: [{
+                        parts: [{
+                            text: prompt
+                        }]
+                    }]
+                };
+                
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                        if (response.status === 429) {
+                            if (i < retries - 1) {
+                                console.warn(`API call failed with 429. Retrying in ${delay}ms...`);
+                                await new Promise(res => setTimeout(res, delay));
+                                delay *= 2;
+                                continue;
+                            } else {
+                                throw new Error('API call failed after multiple retries.');
+                            }
+                        }
+                        if (!response.ok) {
+                            throw new Error(`API call failed with status: ${response.status}`);
+                        }
+                        const result = await response.json();
+                        return result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    } catch (error) {
+                        console.error('Error calling Gemini API:', error);
+                        return "Error generating response.";
+                    }
+                }
+            }
+
+            sloganButton.addEventListener('click', async () => {
+                sloganButton.disabled = true;
+                const originalText = sloganSpan.textContent;
+                sloganSpan.textContent = "Generating...";
+                const prompt = "Create a short, catchy slogan for a company named Nexus that means 'a heart of connections' and is related to technology, networking, or community. The slogan should be less than 10 words.";
+                const newSlogan = await callGeminiApi(prompt);
+                if (newSlogan) {
+                    sloganSpan.textContent = newSlogan.replace(/^['"](.*)['"]$/, '$1');
+                } else {
+                    sloganSpan.textContent = originalText;
+                }
+                sloganButton.disabled = false;
+            });
+            
+            passwordButton.addEventListener('click', async () => {
+                passwordButton.disabled = true;
+                const originalText = passwordButton.textContent;
+                passwordButton.textContent = "Generating...";
+                const prompt = "Generate a secure, 12-character password that includes a mix of uppercase letters, lowercase letters, numbers, and symbols.";
+                const newPassword = await callGeminiApi(prompt);
+                if (newPassword) {
+                    passwordInput.value = newPassword;
+                }
+                passwordButton.textContent = originalText;
+                passwordButton.disabled = false;
+            });
+            
+            generateIdBtn.addEventListener('click', async () => {
+                generateIdBtn.disabled = true;
+                const originalText = generateIdBtn.textContent;
+                generateIdBtn.textContent = "Generating ID...";
+                const prompt = "Generate a unique alphanumeric identifier that is 8 characters long, using a mix of letters and numbers.";
+                const newId = await callGeminiApi(prompt);
+                if (newId) {
+                    alert(`ID Generated: ${newId}`);
+                }
+                generateIdBtn.textContent = originalText;
+                generateIdBtn.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>

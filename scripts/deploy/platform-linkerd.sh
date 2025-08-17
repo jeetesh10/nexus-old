@@ -12,6 +12,14 @@ if [ -z "$1" ]; then
 fi
 source $1
 
+if [[ "$1" == "--cleanup" ]]; then
+    echo -e "\n${CYAN}--- Cleaning up Linkerd Service Mesh ---${NC}"
+    linkerd viz uninstall | kubectl delete -f - || echo "Linkerd viz not found, skipping."
+    linkerd uninstall | kubectl delete -f - || echo "Linkerd not found, skipping."
+    echo -e "\n${GREEN}✅ Linkerd cleanup complete.${NC}"
+    exit 0
+fi
+
 echo -e "\n${CYAN}--- Deploying Linkerd Service Mesh for [${YELLOW}$ENV_TYPE${CYAN}] environment ---${NC}"
 
 # Generate and apply CRDs first

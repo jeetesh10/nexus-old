@@ -154,7 +154,17 @@
             'neo4j': { name: '🕸️ Neo4j (Graph DB)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
             'api-gateway': { name: '🌐 API Gateway (APISIX)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
             'linkerd': { name: '🔗 Linkerd (Service Mesh)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
-            'vault': { name: '🔒 Vault (Secrets)', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
+            'vault': { 
+                name: '🔒 Vault (Secrets)', 
+                type: 'platform', 
+                adr: {
+                    'ADR-001': { title: 'Use HashiCorp Vault for Secrets Management', content: 'To centralize and secure all application secrets, including passwords, API keys, and certificates, we will use HashiCorp Vault. This provides a single source of truth and programmatic access with strict ACLs.' },
+                    'ADR-002': { title: 'Implement Production-Ready Vault Setup', content: 'Vault will be deployed in a High-Availability (HA) configuration using the integrated Raft storage backend with persistent volumes. This ensures data durability and resilience against node failure.' }
+                },
+                hasDiagram: true, 
+                hasDeployment: true, 
+                hasTesting: true 
+            },
             'monitoring': { name: '📈 Monitoring', type: 'tool', adrCount: 2, hasSequence: false, hasApiContract: false, hasTesting: true, hasDeployment: true },
         };
 
@@ -248,6 +258,7 @@
             const contentGenerators = {
                 'system-context': getSystemContextContent,
                 'platform-setup': getPlatformSetupContent,
+                'vault': getPlatformSetupContent, // Re-use the platform setup content generator
                 'default': getServiceContent
             };
 
