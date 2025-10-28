@@ -25,9 +25,6 @@ class ServiceAPIHandler(BaseHTTPRequestHandler):
             path = parsed_url.path
             query_params = parse_qs(parsed_url.query)
             
-            # Set CORS headers
-            self.send_cors_headers()
-            
             if path == '/api/services':
                 self.get_services()
             elif path == '/api/user-access':
@@ -48,7 +45,7 @@ class ServiceAPIHandler(BaseHTTPRequestHandler):
         """Send CORS headers"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     
     def get_db_connection(self):
         """Get database connection"""

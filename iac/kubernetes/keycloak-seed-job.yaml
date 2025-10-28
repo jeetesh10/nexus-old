@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-seed-job
+  labels:
+    app: keycloak
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: seed
+        # Use a Debian image and fetch the seeder script directly from the repo raw URL to avoid path mismatches
+        image: debian:bookworm-slim
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: KEYCLOAK_URL
+          value: "http://keycloak-service:8080"
+        - name: SEED_RAW_URL
+          value: "https://raw.githubusercontent.com/jeetesh10/nexus/master/scripts/ops/seed-keycloak.sh"
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -xe
+          apt-get update && apt-get install -y --no-install-recommends curl jq ca-certificates bash && rm -rf /var/lib/apt/lists/*
+          # Wait for Keycloak to be reachable (max ~3 minutes)
+          i=0
+          until curl -s --max-time 3 "$KEYCLOAK_URL/realms/master" > /dev/null; do
+            i=$((i+1))
+            if [ $i -gt 60 ]; then
+              echo "Keycloak did not become ready in time" >&2
+              exit 2
+            fi
+            sleep 3
+          done
+            # Run the embedded seeder from mounted ConfigMap using bash (no chmod needed)
+            bash /seed/seed-keycloak.sh
+        volumeMounts:
+        - name: seed-config
+          mountPath: /seed
+          readOnly: true
+      # Keep the Job simple; it runs once and exits. If your cluster blocks external git, run the seeder manually.
+      volumes:
+      - name: seed-config
+        configMap:
+          name: keycloak-seed-config

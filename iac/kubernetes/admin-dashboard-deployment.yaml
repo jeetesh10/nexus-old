@@ -17,15 +17,36 @@ spec:
       containers:
       - name: admin-dashboard
         image: nexus/admin-dashboard:latest
+        imagePullPolicy: Never
         ports:
-        - containerPort: 8080
+        - containerPort: 8000
         env:
         - name: AUTH_API_URL
           value: "http://auth-api-service:8080"
+        - name: KEYCLOAK_URL
+          value: "/keycloak"
+        - name: KEYCLOAK_INTERNAL_URL
+          value: "http://keycloak-service:8080"
+        - name: KEYCLOAK_REALM
+          value: "nexus"
+        - name: ADMIN_CLIENT_ID
+          value: "admin-dashboard"
+        - name: CUSTOMER_CLIENT_ID
+          value: "customer-portal"
+        - name: REQUIRED_ADMIN_GROUP
+          value: "platform-admins"
+        - name: REQUIRED_CUSTOMER_GROUP
+          value: "customers"
         - name: MONGODB_ORCHESTRATOR_URL
           value: "http://mongodb-orchestrator-service:8000"
         - name: POSTGRESQL_ORCHESTRATOR_URL
           value: "http://postgresql-orchestrator-service:8000"
+        - name: MONGODB_AUDIT_URI
+          value: "mongodb://mongodb-service.default.svc.cluster.local:27017"
+        - name: MONGODB_AUDIT_DB
+          value: "nexus"
+        - name: MONGODB_AUDIT_COLLECTION
+          value: "audit_logins"
         resources:
           requests:
             memory: "256Mi"
@@ -36,13 +57,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 8000
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
 ---
@@ -56,8 +77,8 @@ spec:
   selector:
     app: admin-dashboard
   ports:
-  - port: 8080
-    targetPort: 8080
+  - port: 8000
+    targetPort: 8000
     protocol: TCP
   type: ClusterIP
 ---
@@ -80,4 +101,4 @@ spec:
           service:
             name: admin-dashboard-service
             port:
-              number: 8080
+              number: 8000

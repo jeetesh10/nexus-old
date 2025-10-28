@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Router</title>
+  <script src="config.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; padding: 24px; }
+    .box { max-width: 720px; margin: 0 auto; border: 1px solid #eee; border-radius: 10px; padding: 16px; }
+    .muted { color: #666; font-size: 0.9em; }
+    .error { color: #a00; }
+  </style>
+  <script>
+    function b64urlDecode(input) {
+      input = input.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = input.length % 4; if (pad) input += '='.repeat(4-pad);
+      return atob(input);
+    }
+    function parseJwt(tok){ try{ const p=tok.split('.')[1]; return JSON.parse(decodeURIComponent(b64urlDecode(p).split('').map(c=>'%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join('')));}catch(e){return null;} }
+    function groupMatch(groups, patterns){ const lower=(groups||[]).map(g=>String(g).toLowerCase()); return patterns.some(p=> lower.some(g=> g.includes(p))); }
+
+    async function route() {
+      const params = new URLSearchParams(window.location.hash.substring(1));
+      const err = params.get('error');
+      const errDesc = params.get('error_description');
+      if (err) {
+        document.getElementById('status').innerHTML = `<div class="error">Login error: ${err}: ${decodeURIComponent(errDesc||'')}</div>`;
+        return;
+      }
+      const accessToken = params.get('access_token');
+      const idToken = params.get('id_token');
+      const state = params.get('state');
+      if (!accessToken || !idToken) {
+        document.getElementById('status').innerHTML = `<div class="error">Missing tokens in callback. <a href="login.html">Try again</a>.</div>`;
+        return;
+      }
+
+      // Validate state/nonce
+      const expectedState = sessionStorage.getItem('oidc_state');
+      const expectedNonce = sessionStorage.getItem('oidc_nonce');
+      const idPayload = parseJwt(idToken) || {};
+      if (expectedState && state && expectedState !== state) {
+        document.getElementById('status').innerHTML = `<div class="error">Security check failed (state mismatch). <a href="login.html">Try again</a>.</div>`;
+        return;
+      }
+      if (!idPayload.nonce || (expectedNonce && idPayload.nonce !== expectedNonce)) {
+        document.getElementById('status').innerHTML = `<div class="error">Security check failed (nonce). <a href="login.html">Try again</a>.</div>`;
+        return;
+      }
+
+      // Persist tokens
+      try { sessionStorage.setItem('access_token', accessToken); sessionStorage.setItem('id_token', idToken); } catch {}
+
+      const payload = parseJwt(accessToken) || {};
+      const groups = payload.groups || [];
+
+      // Decide route by groups
+        let dest = null;
+        if (groupMatch(groups, ['nexus/platform-admin', 'nexus/admin-dashboard', '/admin', 'admin'])) {
+          dest = '/admin/';
+        } else if (groupMatch(groups, ['/customer', 'customer', 'retailer'])) {
+          dest = '/customer/';
+        }
+
+        // Default: go to landing page if no specific route
+        if (!dest) dest = '/landing-page.html';
+
+        // Clean hash and redirect (replace so back button doesn't return to token hash)
+        window.location.replace(dest);
+    }
+    window.onload = route;
+  </script>
+</head>
+<body>
+  <div class="box">
+    <h2>Nexus Router</h2>
+    <div id="status" class="muted">Routing you to your destination…</div>
+    <p class="muted">If nothing happens, <a href="landing-page.html">go to landing</a>.</p>
+  </div>
+</body>
+</html>

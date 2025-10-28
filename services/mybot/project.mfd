@@ -1,0 +1,48 @@
+Project: Mybot
+Type: LangChain AI Chatbot Skeleton
+
+Overview:
+Mybot is a minimal, well organized project scaffold for building a LangChain-style chatbot using Node.js. It separates chains, API routes, utilities, and service adapters so you can incrementally replace stubs with real LLM and vector-db integrations.
+
+Technology Stack:
+- Runtime: Node.js
+- Web framework: Express
+- Environment: dotenv
+- LLM: stubbed (replace with OpenAI/LangChain client)
+- Vector DB: stubbed (replace with ChromaDB/Pinecone)
+
+Directory Layout (brief):
+- src/chains - greetingChain.js, summarizationChain.js, index.js
+- src/api - chatRoutes.js
+- src/services - llmService.js, vectorDbService.js
+- src/utils - helperFunctions.js
+- config/config.js - consolidated env/config loader
+- .env - environment variables (ignored by git)
+
+Important files and responsibilities:
+- `src/index.js` - bootstraps the Express server and mounts API routes
+- `src/chains/*` - isolated conversational flows; each file is a reusable chain
+- `src/services/*` - adapter layer for external systems (LLMs, vector DBs)
+- `project.mfd` - this manifest file describing the project
+
+Environment variables (example):
+- PORT - port the server listens on
+- NODE_ENV - development/production
+- OPENAI_API_KEY - API key for OpenAI (if used)
+
+How to run (dev):
+1. cd services/mybot
+2. cp .env.example .env (or edit `.env` directly) and set keys
+3. npm install
+4. npm start
+
+Quality gates & next steps:
+- Replace `llmService.generate` with a real LangChain/OpenAI client
+- Implement a real vector DB adapter in `vectorDbService` and embedding pipeline
+- Add unit tests for chains and service adapters
+- Add input validation and authentication for API endpoints
+
+Contacts & Notes:
+- This scaffold is intentionally minimal to make the core structure clear. Use this as a starting point and add tests, CI, and production readiness changes before deploying.
+
+Manifest generated: September 09, 2025

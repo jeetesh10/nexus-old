@@ -22,7 +22,7 @@ spec:
         image: nexus/auth-api:latest
         imagePullPolicy: Never
         ports:
-        - containerPort: 8080
+        - containerPort: 8084
           name: http
         env:
         - name: KEYCLOAK_URL
@@ -35,23 +35,25 @@ spec:
           value: "your-client-secret"
         - name: JWT_SECRET
           value: "your-jwt-secret-key"
+        - name: PORT
+          value: "8084"
         resources:
           requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
             memory: "256Mi"
             cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
         livenessProbe:
           httpGet:
             path: /api/auth/health
-            port: 8080
+            port: 8084
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /api/auth/health
-            port: 8080
+            port: 8084
           initialDelaySeconds: 5
           periodSeconds: 5
 ---
@@ -67,8 +69,8 @@ spec:
     app: auth-api-service
   ports:
   - name: http
-    port: 8080
-    targetPort: 8080
+    port: 8084
+    targetPort: 8084
     protocol: TCP
   type: ClusterIP
 ---

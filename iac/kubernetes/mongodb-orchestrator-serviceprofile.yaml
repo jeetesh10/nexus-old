@@ -1,0 +1,25 @@
+apiVersion: linkerd.io/v1beta2
+kind: ServiceProfile
+metadata:
+  name: mongodb-orchestrator.default.svc.cluster.local
+  namespace: default
+spec:
+  routes:
+    - name: POST /{collection}
+      condition:
+        method: POST
+        pathRegex: ^/[^/]+$
+      isRetryable: true
+      timeout: 10s
+    - name: GET /{collection}/{id}
+      condition:
+        method: GET
+        pathRegex: ^/[^/]+/[^/]+$
+      isRetryable: false
+      timeout: 5s
+    - name: POST /{collection}/query
+      condition:
+        method: POST
+        pathRegex: ^/[^/]+/query$
+      isRetryable: true
+      timeout: 15s

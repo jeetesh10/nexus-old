@@ -281,7 +281,8 @@ def get_openid_config():
         return jsonify({"error": f"Failed to get OpenID configuration: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 8080))
+    # Default to 8084 to align with gateway configuration
+    port = int(os.getenv('PORT', 8084))
     logger.info(f"🔐 Auth API Service running on port {port}")
     logger.info(f"📊 Health check: http://localhost:{port}/api/auth/health")
     logger.info(f"🔑 Token validation: http://localhost:{port}/api/auth/validate-token")

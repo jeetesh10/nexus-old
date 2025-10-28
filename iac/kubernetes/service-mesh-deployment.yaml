@@ -19,7 +19,8 @@ spec:
     spec:
       containers:
       - name: service-mesh
-        image: nexus/service-mesh:latest
+        image: jeetesh10/service-mesh:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8085
           name: http
@@ -30,11 +31,11 @@ spec:
           value: "INFO"
         resources:
           requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
             memory: "128Mi"
             cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
         livenessProbe:
           httpGet:
             path: /health

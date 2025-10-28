@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  # MongoDB for local development (extend or remove if you use managed Mongo)
+  mongo:
+    image: mongo:6.0
+    container_name: local-mongo
+    restart: unless-stopped
+    env_file: .env.mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo-data:/data/db
+    networks:
+      - local-db-net
+
+  # Optional admin UI for Mongo
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: local-mongo-express
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-example}
+      ME_CONFIG_MONGODB_SERVER: mongo
+    ports:
+      # Use 8082 on host to avoid clashing with Admin Dashboard (8081)
+      - "8082:8081"
+    networks:
+      - local-db-net
+
+  # Example placeholder: add Postgres if you want local Postgres too
+  # postgres:
+  #   image: postgres:16
+  #   container_name: local-postgres
+  #   env_file: .env.postgres
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - ./pg-data:/var/lib/postgresql/data
+  #   networks:
+  #     - local-db-net
+
+networks:
+  local-db-net:
+    driver: bridge

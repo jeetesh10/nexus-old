@@ -320,5 +320,27 @@ async def main():
         result = await example.validate_token("test-token")
         print("Token validation result:", result)
 
+
+# --- Service Mesh HTTP Server ---
+from aiohttp import web
+
+async def health(request):
+    return web.json_response({"status": "ok"})
+
+async def start_background_tasks(app):
+    app["mesh_client"] = ServiceMeshClient()
+    await app["mesh_client"].start()
+
+async def cleanup_background_tasks(app):
+    await app["mesh_client"].stop()
+
+def create_app():
+    app = web.Application()
+    app.router.add_get("/health", health)
+    app.on_startup.append(start_background_tasks)
+    app.on_cleanup.append(cleanup_background_tasks)
+    return app
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    port = int(os.environ.get("MESH_PORT", 8085))
+    web.run_app(create_app(), port=port)

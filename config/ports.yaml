@@ -1,0 +1,62 @@
+services:
+  admin-dashboard:
+    containerPort: 8000
+    servicePort: 80
+    ingressHost: admin-dashboard.local
+    # Local port-forward recommendation: 8081
+    localPort: 8083
+  api-gateway:
+    containerPort: 8086
+    servicePort: 8086
+    ingressHost: api.nexus.platform
+  auth-api:
+    containerPort: 8084
+    servicePort: 8084
+    ingressHost: auth-api.local
+  access-control:
+    containerPort: 8083
+    servicePort: 8083
+    ingressHost: access-control.local
+  landing-page:
+    containerPort: 8000
+    servicePort: 80
+    ingressHost: landing-page.local
+    # Local port-forward recommendation: 8082 (landing UI)
+    localPort: 8082
+
+  # Reserved: 18081 is for Keycloak Admin UI port-forward
+
+  # MongoDB Orchestrator service (keep in sync with iac manifests)
+  mongodb-orchestrator:
+    containerPort: 8080
+    servicePort: 8080
+    ingressHost: mongodb-orchestrator.local
+
+  mongo-express:
+    containerPort: 8081
+    servicePort: 8081
+    ingressHost: mongo-express.local
+    localPort: 8081
+
+# Add more services here following the same structure.
+
+  # SmartCart Bot service (internal for now; can be exposed later via APISIX)
+  smartcart-bot:
+    containerPort: 8087
+    servicePort: 8087
+    ingressHost: smartcart-bot.local
+  redis:
+    containerPort: 6379
+    servicePort: 6379
+    ingressHost: redis.local
+  redis-orchestrator:
+    containerPort: 8088
+    servicePort: 8088
+    ingressHost: redis-orchestrator.local
+
+  customer-portal:
+    containerPort: 8002
+    servicePort: 8002
+    ingressHost: customer-portal.local
+    # Protect at app level; only accessible after login via gateway or direct with token
+    localPort: 8084

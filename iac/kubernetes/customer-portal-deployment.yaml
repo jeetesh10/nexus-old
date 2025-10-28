@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-portal
+  namespace: default
+  labels:
+    app: customer-portal
+    nexus.service.type: customer-portal
+    nexus.service.description: "public-customer-portal"
+    nexus.service.icon: "customer"
+    nexus.service.port: "8002"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: customer-portal
+  template:
+    metadata:
+      labels:
+        app: customer-portal
+    spec:
+      containers:
+      - name: customer-portal
+        image: nexus/customer-portal:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8002
+        env:
+        - name: KEYCLOAK_URL
+          value: "http://keycloak.local:9080"
+        - name: KEYCLOAK_REALM
+          value: "nexus"
+        - name: CUSTOMER_CLIENT_ID
+          value: "customer-portal"
+        - name: REQUIRED_CUSTOMER_GROUP
+          value: "customers"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-portal
+  namespace: default
+  labels:
+    app: customer-portal
+    nexus.service.type: customer-portal
+    nexus.service.icon: "customer"
+    nexus.service.port: "8002"
+spec:
+  selector:
+    app: customer-portal
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+  type: ClusterIP

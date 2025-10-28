@@ -1,16 +1,35 @@
 // Configuration for different environments
 const config = {
     // Environment detection
-    isDevelopment: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+    isLocalhost: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+    isCodespaces: /\.github\.dev$/.test(window.location.host),
     isProduction: window.location.protocol === 'https:',
-    
+
+    // Behavior flags
+    autoRedirectAfterLogin: false, // default: stay on landing page; set true to auto-route by groups
+
     // Base URLs
     get keycloakBaseUrl() {
-        return this.isDevelopment ? 'http://localhost:8080' : 'https://auth.nexus.platform';
+        // Dev defaults
+        let base = 'http://localhost:8080';
+        if (this.isCodespaces) {
+            // Map landing port (e.g., -8082) to Keycloak port (e.g., -11000) in Codespaces subdomain
+            // Example: https://<id>-8082.app.github.dev -> https://<id>-11000.app.github.dev
+            const host = window.location.host;
+            const mapped = host.replace(/-(\d+)\.app\.github\.dev$/, '-11000.app.github.dev');
+            // Codespaces uses HTTPS public URLs; ensure we use https here
+            const protocol = 'https:';
+            base = `${protocol}//${mapped}`;
+        } else if (this.isLocalhost) {
+            // If using our simple forward for Keycloak on 11000, prefer that
+            base = 'http://localhost:11000';
+        }
+        return base;
     },
-    
+
     get landingPageUrl() {
-        return this.isDevelopment ? 'http://localhost:8082' : 'https://platform.nexus.com';
+        // Use current origin by default so redirects always point back to this page
+        return window.location.origin;
     },
     
     // Service URLs
@@ -26,6 +45,10 @@ const config = {
         parkingService: {
             dev: 'http://localhost:8084',
             prod: 'https://parking.nexus.platform'
+        },
+        customerPortal: {
+            dev: 'http://localhost:8084',
+            prod: 'https://customer.nexus.platform'
         },
         monitoring: {
             dev: 'http://localhost:3000',

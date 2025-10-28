@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-orchestrator
+  labels:
+    app: redis-orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-orchestrator
+  template:
+    metadata:
+      labels:
+        app: redis-orchestrator
+    spec:
+      containers:
+        - name: redis-orchestrator
+          image: nexus/redis-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8088
+              name: http
+          env:
+            - name: REDIS_URL
+              value: "redis://redis.default.svc.cluster.local:6379"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-orchestrator
+  labels:
+    app: redis-orchestrator
+spec:
+  selector:
+    app: redis-orchestrator
+  ports:
+    - port: 8088
+      targetPort: 8088
+      protocol: TCP
+  type: ClusterIP

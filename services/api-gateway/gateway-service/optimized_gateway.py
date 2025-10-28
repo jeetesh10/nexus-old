@@ -1,307 +1,222 @@
 #!/usr/bin/env python3
+"""Optimized API Gateway for Nexus Platform.
+Provides:
+  * External service proxy (landing-page, auth)
+  * Internal service delegation (/api/*)
+  * Health endpoint (/health)
+Now resilient when landing-page service is unavailable (returns fallback page instead of 502).
 """
-Optimized API Gateway for Nexus Platform
-Handles external traffic only, delegates internal routing to service mesh
-"""
-import json
-import logging
-import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-import requests
-from datetime import datetime
-import ipaddress
-import asyncio
-import aiohttp
 from concurrent.futures import ThreadPoolExecutor
+import typing, os, logging, json, ipaddress, requests
+from datetime import datetime
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+FALLBACK_LANDING_HTML = b"""<!DOCTYPE html><html><head><title>Nexus Landing (Degraded)</title><style>body{font-family:Arial;margin:40px;background:#111;color:#eee} .box{background:#222;padding:20px;border-radius:8px;max-width:640px} a{color:#82aaff}</style></head><body><div class='box'><h1>Nexus Platform</h1><p>Landing page service is currently unavailable.</p><ul><li><a href='/health'>Gateway Health</a></li><li><a href='/api/'>API Root</a> (if exposed)</li></ul><p>Status: <strong>DEGRADED</strong></p></div></body></html>"""
+
+def env_bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).lower() in ("1", "true", "yes", "on")
+
+IN_CLUSTER = env_bool("RUN_IN_CLUSTER", True)  # assume True when running in k8s
+
 class OptimizedGatewayHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        # External service configurations (only client-facing)
-        self.external_services = {
+    def __init__(self, *args: typing.Any, **kwargs: typing.Any):
+        # External service config (host/port adjustable via env)
+        landing_host = os.getenv("LANDING_PAGE_HOST", "landing-page-service" if IN_CLUSTER else "localhost")
+        landing_port = int(os.getenv("LANDING_PAGE_PORT", "8000"))
+        auth_host = os.getenv("AUTH_SERVICE_HOST", "auth" if IN_CLUSTER else "localhost")
+        auth_port = int(os.getenv("AUTH_SERVICE_PORT", "8080"))
+
+        self.external_services: dict[str, dict[str, typing.Any]] = {
             'landing-page': {
-                'host': 'localhost',
-                'port': 8082,
-                'base_path': '/landing'
+                'host': landing_host,
+                'port': landing_port,
+                'base_path': '/'
             },
             'auth': {
-                'host': 'localhost',
-                'port': 8080,
+                'host': auth_host,
+                'port': auth_port,
                 'base_path': '/realms/nexus-platform'
             }
         }
-        
-        # Internal service discovery (for service mesh)
-        self.internal_services = {
-            'access-control': 'localhost:8083',
-            'auth-api': 'localhost:8084',
-            'admin-dashboard': 'localhost:8081'
+
+        # Internal service discovery (use service DNS names in cluster)
+        self.internal_services: dict[str, str] = {
+            'access-control': os.getenv('ACCESS_CONTROL_ADDR', 'access-control-service:8000' if IN_CLUSTER else 'localhost:8083'),
+            'auth-api': os.getenv('AUTH_API_ADDR', 'auth-api-service:8084' if IN_CLUSTER else 'localhost:8084'),
+            'admin-dashboard': os.getenv('ADMIN_DASHBOARD_ADDR', 'admin-dashboard-service:8000' if IN_CLUSTER else 'localhost:8081')
         }
-        
-        # Security configuration
+
         self.allowed_ips = [
-            ipaddress.ip_network('127.0.0.0/8'),  # Localhost
-            ipaddress.ip_network('10.0.0.0/8'),   # Internal network
-            ipaddress.ip_network('172.16.0.0/12'), # Docker network
-            ipaddress.ip_network('192.168.0.0/16') # Local network
+            ipaddress.ip_network('127.0.0.0/8'),
+            ipaddress.ip_network('10.0.0.0/8'),
+            ipaddress.ip_network('172.16.0.0/12'),
+            ipaddress.ip_network('192.168.0.0/16')
         ]
-        
-        # Performance configuration
-        self.connection_pool = aiohttp.ClientSession()
         self.executor = ThreadPoolExecutor(max_workers=10)
-        
         super().__init__(*args, **kwargs)
-    
-    def do_GET(self):
-        """Handle GET requests"""
+
+    # --------------- Core HTTP Methods ---------------
+    def do_GET(self):  # noqa: N802
         try:
-            # Check IP restrictions
             if not self.is_ip_allowed():
-                self.send_error(403, "Access denied")
-                return
-            
-            # Set CORS headers
-            self.send_cors_headers()
-            
-            # Parse request
-            parsed_url = urlparse(self.path)
-            path = parsed_url.path
-            query_params = parse_qs(parsed_url.query)
-            
-            # Route request
-            self.route_request(path, query_params)
-            
-        except Exception as e:
-            logger.error(f"Error handling request: {e}")
-            self.send_error(500, f"Internal server error: {str(e)}")
-    
-    def do_POST(self):
-        """Handle POST requests"""
-        try:
-            # Check IP restrictions
-            if not self.is_ip_allowed():
-                self.send_error(403, "Access denied")
-                return
-            
-            # Set CORS headers
-            self.send_cors_headers()
-            
-            # Parse request
-            parsed_url = urlparse(self.path)
-            path = parsed_url.path
-            
-            # Route request
-            self.route_request(path, {})
-            
-        except Exception as e:
-            logger.error(f"Error handling POST request: {e}")
-            self.send_error(500, f"Internal server error: {str(e)}")
-    
-    def do_OPTIONS(self):
-        """Handle preflight requests"""
+                return self.safe_send_error(403, "Access denied")
+            parsed = urlparse(self.path)
+            self.route_request(parsed.path, parse_qs(parsed.query))
+        except BrokenPipeError:
+            logger.warning("Client disconnected during GET")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Unhandled GET error: %s", e)
+            self.safe_send_error(500, "Internal server error")
+
+    def do_OPTIONS(self):  # noqa: N802
         self.send_response(200)
         self.send_cors_headers()
         self.end_headers()
-    
-    def is_ip_allowed(self):
-        """Check if client IP is allowed"""
+
+    # --------------- Helpers ---------------
+    def is_ip_allowed(self) -> bool:
         client_ip = ipaddress.ip_address(self.client_address[0])
-        return any(client_ip in network for network in self.allowed_ips)
-    
+        return any(client_ip in net for net in self.allowed_ips)
+
     def send_cors_headers(self):
-        """Send CORS headers"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    
-    def route_request(self, path, query_params):
-        """Route request to appropriate service"""
-        logger.info(f"Routing request: {path} from {self.client_address[0]}")
-        
-        # Health check endpoint
+
+    # --------------- Routing ---------------
+    def route_request(self, path: str, query: dict[str, list[str]]):
+        logger.info("Routing %s from %s", path, self.client_address[0])
         if path == '/health':
-            self.get_health()
-            return
-        
-        # External routes (client-facing only)
-        if path.startswith('/landing') or path in ['/', '/login.html', '/landing-page.html']:
-            self.proxy_to_external_service('landing-page', path, query_params)
-            return
-        
-        # Auth routes (external Keycloak access)
+            return self.get_health()
+        if path in ['/', '/index.html']:
+            return self.proxy_to_external_service('landing-page', '/', query, allow_fallback=True)
+        if path.startswith('/landing'):
+            return self.proxy_to_external_service('landing-page', path, query, allow_fallback=True)
         if path.startswith('/auth/') or path.startswith('/realms/'):
-            self.proxy_to_external_service('auth', path, query_params)
-            return
-        
-        # Internal API routes (delegate to service mesh)
+            return self.proxy_to_external_service('auth', path, query)
         if path.startswith('/api/'):
-            self.delegate_to_service_mesh(path, query_params)
-            return
-        
-        # Default: return 404
-        self.send_error(404, "Endpoint not found")
-    
-    def proxy_to_external_service(self, service_name, path, query_params):
-        """Proxy request to external service"""
+            return self.delegate_to_service_mesh(path, query)
+        self.safe_send_error(404, "Not found")
+
+    # --------------- Proxy Logic ---------------
+    def proxy_to_external_service(self, service_name: str, path: str, query: dict[str, list[str]], allow_fallback: bool = False):
         try:
-            service = self.external_services[service_name]
-            
-            # Build target URL
-            query_string = '&'.join([f"{k}={v[0]}" for k, v in query_params.items()])
-            target_url = f"http://{service['host']}:{service['port']}{path}"
-            if query_string:
-                target_url += f"?{query_string}"
-            
-            logger.info(f"Proxying to external service {service_name}: {target_url}")
-            
-            # Forward request with optimized connection pooling
-            response = requests.get(target_url, timeout=5)
-            
-            # Forward response
-            self.send_response(response.status_code)
-            
-            # Forward headers
-            for header, value in response.headers.items():
-                if header.lower() not in ['transfer-encoding', 'connection']:
-                    self.send_header(header, value)
-            
+            svc = self.external_services[service_name]
+            q = '&'.join([f"{k}={v[0]}" for k, v in query.items()])
+            target = f"http://{svc['host']}:{svc['port']}{path}"
+            if q:
+                target += f"?{q}"
+            logger.info("Proxy -> %s : %s", service_name, target)
+            resp = requests.get(target, timeout=5)
+            self.send_response(resp.status_code)
+            for h, v in resp.headers.items():
+                if h.lower() not in ['transfer-encoding', 'connection']:
+                    self.send_header(h, v)
             self.send_cors_headers()
             self.end_headers()
-            
-            # Forward body
-            self.wfile.write(response.content)
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error proxying to external service {service_name}: {e}")
-            self.send_error(502, f"External service {service_name} unavailable")
-    
-    def delegate_to_service_mesh(self, path, query_params):
-        """Delegate internal requests to service mesh"""
-        try:
-            # Extract service name from path
-            # /api/auth/validate-token -> auth-api
-            # /api/services -> access-control
-            path_parts = path.split('/')
-            if len(path_parts) >= 3:
-                service_type = path_parts[2]  # 'auth' or 'services'
-                
-                if service_type == 'auth':
-                    service_name = 'auth-api'
-                elif service_type == 'services':
-                    service_name = 'access-control'
-                else:
-                    service_name = 'access-control'  # default
-                
-                service_url = self.internal_services.get(service_name)
-                if service_url:
-                    # Build target URL
-                    query_string = '&'.join([f"{k}={v[0]}" for k, v in query_params.items()])
-                    target_url = f"http://{service_url}{path}"
-                    if query_string:
-                        target_url += f"?{query_string}"
-                    
-                    logger.info(f"Delegating to service mesh {service_name}: {target_url}")
-                    
-                    # Use optimized connection for internal calls
-                    response = requests.get(target_url, timeout=3)
-                    
-                    # Forward response
-                    self.send_response(response.status_code)
-                    
-                    # Forward headers
-                    for header, value in response.headers.items():
-                        if header.lower() not in ['transfer-encoding', 'connection']:
-                            self.send_header(header, value)
-                    
-                    self.send_cors_headers()
-                    self.end_headers()
-                    
-                    # Forward body
-                    self.wfile.write(response.content)
-                else:
-                    self.send_error(503, f"Service {service_name} not available in mesh")
+            try:
+                self.wfile.write(resp.content)
+            except BrokenPipeError:
+                logger.warning("Client disconnected while writing body")
+        except requests.exceptions.RequestException as e:  # network error
+            logger.error("Proxy error (%s): %s", service_name, e)
+            if allow_fallback and service_name == 'landing-page':
+                self._serve_fallback_landing()
             else:
-                self.send_error(400, "Invalid API path")
-                
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error delegating to service mesh: {e}")
-            self.send_error(502, "Service mesh unavailable")
-    
-    def get_health(self):
-        """Health check endpoint"""
+                self.safe_send_error(502, f"External service {service_name} unavailable")
+
+    def _serve_fallback_landing(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_cors_headers()
+        self.end_headers()
         try:
-            health_data = {
-                "status": "healthy",
-                "timestamp": datetime.now().isoformat(),
-                "gateway": "optimized",
-                "external_services": {},
-                "internal_services": {}
-            }
-            
-            # Check external service health
-            for service_name, service in self.external_services.items():
-                try:
-                    health_url = f"http://{service['host']}:{service['port']}/health"
-                    response = requests.get(health_url, timeout=2)
-                    health_data["external_services"][service_name] = {
-                        "status": "healthy" if response.status_code == 200 else "unhealthy",
-                        "response_time": response.elapsed.total_seconds()
-                    }
-                except Exception as e:
-                    health_data["external_services"][service_name] = {
-                        "status": "unhealthy",
-                        "error": str(e)
-                    }
-            
-            # Check internal service health
-            for service_name, service_url in self.internal_services.items():
-                try:
-                    health_url = f"http://{service_url}/health"
-                    response = requests.get(health_url, timeout=2)
-                    health_data["internal_services"][service_name] = {
-                        "status": "healthy" if response.status_code == 200 else "unhealthy",
-                        "response_time": response.elapsed.total_seconds()
-                    }
-                except Exception as e:
-                    health_data["internal_services"][service_name] = {
-                        "status": "unhealthy",
-                        "error": str(e)
-                    }
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
+            self.wfile.write(FALLBACK_LANDING_HTML)
+        except BrokenPipeError:
+            logger.warning("Client disconnected before fallback page sent")
+
+    # --------------- Internal Delegation ---------------
+    def delegate_to_service_mesh(self, path: str, query: dict[str, list[str]]):
+        try:
+            parts = path.split('/')
+            if len(parts) < 3:
+                return self.safe_send_error(400, "Invalid API path")
+            category = parts[2]
+            if category == 'auth':
+                service_name = 'auth-api'
+            elif category == 'services':
+                service_name = 'access-control'
+            else:
+                service_name = 'access-control'
+            addr = self.internal_services.get(service_name)
+            if not addr:
+                return self.safe_send_error(503, f"Service {service_name} not registered")
+            q = '&'.join([f"{k}={v[0]}" for k, v in query.items()])
+            target = f"http://{addr}{path}" + (f"?{q}" if q else '')
+            logger.info("Mesh delegate -> %s : %s", service_name, target)
+            resp = requests.get(target, timeout=3)
+            self.send_response(resp.status_code)
+            for h, v in resp.headers.items():
+                if h.lower() not in ['transfer-encoding', 'connection']:
+                    self.send_header(h, v)
             self.send_cors_headers()
             self.end_headers()
-            self.wfile.write(json.dumps(health_data, indent=2).encode())
-            
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            self.send_error(500, f"Health check failed: {str(e)}")
-    
-    def log_message(self, format, *args):
-        """Custom logging"""
-        logger.info(f"{self.client_address[0]} - {format % args}")
+            try:
+                self.wfile.write(resp.content)
+            except BrokenPipeError:
+                logger.warning("Client disconnected during mesh write")
+        except requests.exceptions.RequestException as e:
+            logger.error("Mesh delegation error: %s", e)
+            self.safe_send_error(502, "Service mesh unavailable")
 
-def run_optimized_gateway(port=8080):
-    """Run the optimized API Gateway"""
+    # --------------- Health ---------------
+    def get_health(self):
+        payload = {
+            'status': 'healthy',
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'gateway': 'optimized',
+            'in_cluster': IN_CLUSTER,
+            'external_services': {k: {'host': v['host'], 'port': v['port']} for k, v in self.external_services.items()},
+        }
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_cors_headers()
+        self.end_headers()
+        try:
+            self.wfile.write(json.dumps(payload).encode())
+        except BrokenPipeError:
+            logger.warning("Client disconnected during health write")
+
+    # --------------- Error & Logging ---------------
+    def safe_send_error(self, code: int, message: str):
+        try:
+            self.send_error(code, message)
+        except BrokenPipeError:
+            logger.warning("Client disconnected while sending error %s", code)
+
+    def log_message(self, format: str, *args: typing.Any) -> None:  # noqa: A003
+        logger.info("%s - %s", self.client_address[0], format % args)
+
+
+def run_optimized_gateway():
     try:
-        server_address = ('', port)
-        httpd = HTTPServer(server_address, OptimizedGatewayHandler)
-        logger.info(f"🚀 Optimized API Gateway running on port {port}")
-        logger.info(f"📊 Health check: http://localhost:{port}/health")
-        logger.info(f"🔗 External access: http://localhost:{port}/landing")
-        logger.info(f"🔐 Auth access: http://localhost:{port}/auth/*")
-        logger.info(f"🕸️ Internal delegation: http://localhost:{port}/api/*")
+        port = int(os.getenv('GATEWAY_PORT', '8080'))
+        httpd = HTTPServer(('', port), OptimizedGatewayHandler)
+        logger.info("🚀 Optimized API Gateway running on port %s", port)
+        logger.info("📊 Health    : http://localhost:%s/health", port)
+        logger.info("🔗 Landing   : http://localhost:%s/", port)
+        logger.info("🔐 Auth      : http://localhost:%s/auth/*", port)
+        logger.info("🕸️  Internal : http://localhost:%s/api/*", port)
         httpd.serve_forever()
-        
     except KeyboardInterrupt:
-        logger.info("Optimized Gateway stopped by user")
-    except Exception as e:
-        logger.error(f"Optimized Gateway error: {e}")
+        logger.info("Gateway stopped by user")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Gateway fatal error: %s", e)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     run_optimized_gateway()

@@ -1,0 +1,74 @@
+# Keep these ports in sync with config/ports.yaml (smartcart-bot: containerPort/servicePort 8087)
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartcart-bot
+  namespace: default
+  labels:
+    app: smartcart-bot
+    nexus.service.type: custom
+    nexus.service.description: "smartcart-bot-service"
+    nexus.service.icon: "cart"
+    nexus.service.url: "smartcart-bot.local"
+    nexus.service.port: "8087"
+spec:
+  selector:
+    app: smartcart-bot
+  ports:
+    - name: http
+      port: 8087
+      targetPort: 8087
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartcart-bot
+  namespace: default
+  labels:
+    app: smartcart-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smartcart-bot
+  template:
+    metadata:
+      labels:
+        app: smartcart-bot
+      annotations:
+        linkerd.io/inject: "enabled"
+    spec:
+      containers:
+        - name: smartcart-bot
+          image: nexus/smartcart-bot:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8087
+              name: http
+          env:
+            - name: MONGODB_ORCHESTRATOR_URL
+              value: "http://mongodb-orchestrator.default.svc.cluster.local"
+            - name: MONGODB_DATABASE
+              value: "nexus"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8087
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8087
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

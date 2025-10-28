@@ -143,6 +143,23 @@
             margin-top: 50px;
         }
 
+        .redirect-banner {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .redirect-banner button {
+            margin-left: 10px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+        }
+
         @media (max-width: 768px) {
             .products-grid {
                 grid-template-columns: 1fr;
@@ -170,18 +187,27 @@
             </div>
         </div>
 
+        <div id="redirect-banner" class="redirect-banner"></div>
+
         <div class="products-grid" id="products-grid">
             <div class="loading">Loading available products...</div>
         </div>
     </div>
 
     <script>
+        // Helper: base64url decode
+        function base64UrlDecode(input) {
+            input = input.replace(/-/g, '+').replace(/_/g, '/');
+            const pad = input.length % 4;
+            if (pad) input += '='.repeat(4 - pad);
+            return atob(input);
+        }
+
         // Parse JWT token from URL
         function parseJwt(token) {
             try {
                 const base64Url = token.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                const jsonPayload = decodeURIComponent(base64UrlDecode(base64Url).split('').map(function(c) {
                     return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
                 }).join(''));
                 return JSON.parse(jsonPayload);
@@ -195,8 +221,11 @@
         // Load products from API (through Gateway)
         async function loadProducts() {
             try {
-                console.log('🔄 Loading products from API Gateway...');
-                const response = await fetch('http://localhost:8080/api/services');
+                console.log('🔄 Loading products from API Gateway (via proxy)...');
+                const token = sessionStorage.getItem('access_token');
+                const response = await fetch('/proxy/api/services', {
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                });
                 if (response.ok) {
                     products = await response.json();
                     console.log('✅ Products loaded:', products.length);
@@ -213,9 +242,12 @@
         // Load user's accessible services from API (through Gateway)
         async function loadUserAccessibleServices(userGroups) {
             try {
-                console.log('🔄 Loading user accessible services...');
+                console.log('🔄 Loading user accessible services (via proxy)...');
                 const groupsParam = userGroups.join(',');
-                const response = await fetch(`http://localhost:8080/api/user-access?groups=${encodeURIComponent(groupsParam)}`);
+                const token = sessionStorage.getItem('access_token');
+                const response = await fetch(`/proxy/api/user-access?groups=${encodeURIComponent(groupsParam)}`, {
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                });
                 
                 if (response.ok) {
                     const accessibleServices = await response.json();
@@ -245,7 +277,17 @@
             console.log('Hash without #:', hash);
             
             const params = new URLSearchParams(hash);
+            // Handle error responses from IdP
+            const err = params.get('error');
+            const errDesc = params.get('error_description');
+            if (err) {
+                console.error('OIDC error:', err, errDesc);
+                showError(`${err}: ${decodeURIComponent(errDesc || '')}`);
+                return;
+            }
             const accessToken = params.get('access_token');
+            const idToken = params.get('id_token');
+            const returnedState = params.get('state');
             console.log('Access token found:', accessToken ? 'YES' : 'NO');
             
             if (accessToken) {
@@ -253,17 +295,46 @@
                 console.log('Token preview:', accessToken.substring(0, 20) + '...');
             }
 
-            if (accessToken) {
+            // Validate state
+            const expectedState = sessionStorage.getItem('oidc_state');
+            if (expectedState && returnedState && expectedState !== returnedState) {
+                console.warn('State mismatch', { expectedState, returnedState });
+                showError('Security check failed (state mismatch). Please try logging in again.');
+                return;
+            }
+
+            if (accessToken && idToken) {
+                // Validate nonce via id_token
+                const expectedNonce = sessionStorage.getItem('oidc_nonce');
+                const decodedId = parseJwt(idToken);
+                if (!decodedId || !decodedId.nonce || (expectedNonce && decodedId.nonce !== expectedNonce)) {
+                    console.warn('Nonce validation failed', { expectedNonce, tokenNonce: decodedId && decodedId.nonce });
+                    showError('Security check failed (nonce). Please try logging in again.');
+                    return;
+                }
+
+                // Persist tokens for subsequent API calls if needed
+                try {
+                    sessionStorage.setItem('access_token', accessToken);
+                    sessionStorage.setItem('id_token', idToken);
+                } catch (e) {
+                    console.warn('Unable to persist tokens:', e);
+                }
+
                 const decodedToken = parseJwt(accessToken);
                 if (decodedToken) {
                     // Update user info
                     document.getElementById('username').innerText = decodedToken.preferred_username || 'User';
                     
                     // Analyze user groups for better display
-                    const userGroups = decodedToken.groups || [];
-                    const nexusGroups = userGroups.filter(g => g.includes('nexus') || g.includes('admin'));
+                    const userGroups = (decodedToken.groups || []).map(g => typeof g === 'string' ? g : String(g));
+                    const nexusGroups = userGroups.filter(g => g.includes('nexus') || g.toLowerCase().includes('admin'));
                     const clientGroups = userGroups.filter(g => g.includes('client'));
                     const serviceGroups = userGroups.filter(g => g.includes('service'));
+                    const realmRoles = (decodedToken.realm_access && decodedToken.realm_access.roles) || [];
+                    const clientRoles = Object.values(decodedToken.resource_access || {}).flatMap(v => v.roles || []);
+                    const allRoles = [...new Set([...realmRoles, ...clientRoles])];
+                    const parsedGroups = parseGroupPaths(userGroups);
                     
                     const userDetails = document.getElementById('user-details');
                     userDetails.innerHTML = `
@@ -274,17 +345,89 @@
                                                        clientGroups.length > 0 ? 'Client Access' : 'Limited Access'}<br>
                         <strong>Available Services:</strong> ${serviceGroups.length > 0 ? serviceGroups.join(', ') : 'None'}<br>
                         <strong>Token Expires:</strong> ${new Date(decodedToken.exp * 1000).toLocaleString()}
+                        <hr style="margin:10px 0; border-color: rgba(255,255,255,0.2);">
+                        <strong>Groups (raw):</strong> ${(userGroups.length? userGroups.join(', ') : 'None')}<br>
+                        <strong>Groups (parsed):</strong> ${parsedGroups.map(pg => `${pg.root}${pg.sub1? ' > '+pg.sub1: ''}${pg.sub2? ' > '+pg.sub2: ''}`).join(' | ') || 'None'}<br>
+                        <strong>Roles:</strong> ${allRoles.length ? allRoles.join(', ') : 'None'}
                     `;
+
+                    // Group-based redirect banner/logic (optional)
+                    if (typeof config.autoRedirectAfterLogin === 'undefined' || config.autoRedirectAfterLogin) {
+                        tryRouteByGroup(userGroups);
+                    }
 
                     // Load products and render based on user groups
                     await loadProducts();
                     await renderProducts(userGroups);
+                    // Clean up hash to keep URL tidy
+                    try {
+                        history.replaceState({}, document.title, window.location.pathname);
+                    } catch {}
                 } else {
                     showError('Error decoding authentication token.');
                 }
             } else {
                 showError('No authentication token found. Please log in.');
             }
+        }
+
+        function groupMatch(groups, patterns) {
+            const lower = groups.map(g => g.toLowerCase());
+            return patterns.some(p => lower.some(g => g.includes(p)));
+        }
+
+        function parseGroupPaths(groups) {
+            return groups.map(g => {
+                const p = g.startsWith('/') ? g.slice(1) : g;
+                const parts = p.split('/');
+                return { root: parts[0] || '', sub1: parts[1] || '', sub2: parts[2] || '' };
+            });
+        }
+
+        function tryRouteByGroup(userGroups) {
+            const banner = document.getElementById('redirect-banner');
+            let targetUrl = null;
+            let targetLabel = '';
+
+            // Admin buckets
+            if (groupMatch(userGroups, ['nexus/platform-admin', 'nexus/admin-dashboard', '/admin', 'admin'])) {
+                targetUrl = config.services.adminDashboard?.dev || 'http://localhost:8081';
+                targetLabel = 'Admin Dashboard';
+            }
+
+            // Customer buckets (example: retailer tenants)
+            if (!targetUrl && groupMatch(userGroups, ['/customer', 'customer', 'retailer'])) {
+                targetUrl = config.services.customerPortal?.dev || 'http://localhost:8080';
+                targetLabel = 'Customer Portal';
+            }
+
+            if (!targetUrl) return; // no redirect, remain on landing
+
+            let seconds = 4;
+            const updateBanner = () => {
+                banner.style.display = 'block';
+                banner.innerHTML = `You have access to <strong>${targetLabel}</strong>. Redirecting in ${seconds}s...`
+                  + ` <button id="cancel-redirect">Stay here</button>`
+                  + ` <button id="go-now">Go now</button>`;
+                document.getElementById('cancel-redirect').onclick = () => {
+                    clearInterval(timer);
+                    banner.style.display = 'none';
+                };
+                document.getElementById('go-now').onclick = () => {
+                    clearInterval(timer);
+                    window.location.href = targetUrl;
+                };
+            };
+            updateBanner();
+            const timer = setInterval(() => {
+                seconds -= 1;
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    window.location.href = targetUrl;
+                } else {
+                    updateBanner();
+                }
+            }, 1000);
         }
 
         // Render available products
@@ -343,12 +486,21 @@
 
         // Logout function
         function logout() {
+            // Read tokens for id_token_hint
+            const idToken = sessionStorage.getItem('id_token');
             // Clear any stored tokens
             localStorage.removeItem('access_token');
             sessionStorage.removeItem('access_token');
+            sessionStorage.removeItem('id_token');
             
-            // Redirect to Keycloak logout
-            const logoutUrl = 'http://localhost:8080/realms/nexus-platform/protocol/openid-connect/logout';
+            // Redirect to Keycloak logout with post_logout_redirect_uri back to login.html
+            const post = encodeURIComponent(config.landingPageUrl + '/login.html');
+            const params = new URLSearchParams();
+            params.set('post_logout_redirect_uri', config.landingPageUrl + '/login.html');
+            params.set('client_id', 'nexus-landing');
+            if (idToken) params.set('id_token_hint', idToken);
+            const idpPrefix = config.isCodespaces ? '/keycloak' : config.keycloakBaseUrl;
+            const logoutUrl = `${idpPrefix}/realms/nexus/protocol/openid-connect/logout?${params.toString()}`;
             window.location.href = logoutUrl;
         }
 

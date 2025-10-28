@@ -48,7 +48,7 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
         volumeMounts:
-        - name: database-volume
+        - name: group-management-db-pvc
           mountPath: /app/database
 ---
 apiVersion: v1

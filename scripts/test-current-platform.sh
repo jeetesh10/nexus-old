@@ -149,8 +149,29 @@ test_service_connectivity() {
     print_status "Testing service connectivity..."
     
     # Test if services can reach each other
-    run_test "MongoDB Service DNS" "kubectl run test-mongo --image=busybox --rm -it --restart=Never -- nslookup mongodb-service"
-    run_test "PostgreSQL Service DNS" "kubectl run test-postgres --image=busybox --rm -it --restart=Never -- nslookup postgresql-service"
+        # Robust DNS test with output and retries
+                run_test "MongoDB Service DNS" '
+                    for i in 1 2 3; do
+                        kubectl delete pod test-mongo --ignore-not-found=true -n default
+                        kubectl run test-mongo --image=busybox --restart=Never --command -- nslookup mongodb-service > /dev/null 2>&1
+                        LOG=$(kubectl logs test-mongo -n default 2>/dev/null || true)
+                        echo "$LOG"
+                        echo "$LOG" | grep -q ".*mongodb-service.*Address" && kubectl delete pod test-mongo -n default && exit 0
+                        sleep 2
+                    done
+                    kubectl delete pod test-mongo -n default
+                    exit 1'
+                run_test "PostgreSQL Service DNS" '
+                    for i in 1 2 3; do
+                        kubectl delete pod test-postgres --ignore-not-found=true -n default
+                        kubectl run test-postgres --image=busybox --restart=Never --command -- nslookup postgresql-service > /dev/null 2>&1
+                        LOG=$(kubectl logs test-postgres -n default 2>/dev/null || true)
+                        echo "$LOG"
+                        echo "$LOG" | grep -q ".*postgresql-service.*Address" && kubectl delete pod test-postgres -n default && exit 0
+                        sleep 2
+                    done
+                    kubectl delete pod test-postgres -n default
+                    exit 1'
 }
 
 # Function to generate test report

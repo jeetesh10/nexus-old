@@ -1,3 +1,37 @@
+# Python virtual environments and caches
+**/*-venv/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Node and package managers
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Build outputs and logs
+dist/
+build/
+logs/
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Kubernetes/generated artifacts
+*.yaml.backup
+*.backup
+
+# Postman generated files
+pacts/
 # Dependencies
 node_modules/
 npm-debug.log*
@@ -33,6 +67,7 @@ env/
 ENV/
 .venv/
 .env/
+services/**/.venv/
 
 # IDE
 .vscode/
@@ -294,3 +329,7 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# local iac db data
+/iac/local-db/mongo-data/
+/iac/local-db/pg-data/

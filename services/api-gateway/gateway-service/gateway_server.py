@@ -23,28 +23,28 @@ class GatewayHandler(BaseHTTPRequestHandler):
             'access-control': {
                 'host': 'localhost',
                 'port': 8083,
-                'base_path': '/api'
-            },
-            'keycloak': {
-                'host': 'localhost',
-                'port': 8080,
-                'base_path': '/realms/nexus-platform'
+                'health_path': '/api/health',
             },
             'auth-api': {
                 'host': 'localhost',
                 'port': 8084,
-                'base_path': '/api/auth'
-            },
-            'admin-dashboard': {
-                'host': 'localhost',
-                'port': 8081,
-                'base_path': '/admin'
+                'health_path': '/api/auth/health',
             },
             'landing-page': {
                 'host': 'localhost',
                 'port': 8082,
-                'base_path': '/landing'
-            }
+                'health_path': '/health',
+            },
+            'admin-dashboard': {
+                'host': 'localhost',
+                'port': 8081,
+                'health_path': '/health',
+            },
+            'keycloak': {
+                'host': 'localhost',
+                'port': 8080,
+                'health_path': '/realms/nexus-platform',
+            },
         }
         
         # Security configuration
@@ -202,12 +202,13 @@ class GatewayHandler(BaseHTTPRequestHandler):
             
             # Check service health
             for service_name, service in self.services.items():
+                health_url = f"http://{service['host']}:{service['port']}{service.get('health_path', '/health')}"
                 try:
-                    health_url = f"http://{service['host']}:{service['port']}/health"
                     response = requests.get(health_url, timeout=5)
                     health_data["services"][service_name] = {
                         "status": "healthy" if response.status_code == 200 else "unhealthy",
-                        "response_time": response.elapsed.total_seconds()
+                        "response_time": response.elapsed.total_seconds(),
+                        "http_code": response.status_code
                     }
                 except Exception as e:
                     health_data["services"][service_name] = {

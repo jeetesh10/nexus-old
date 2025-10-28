@@ -6,3 +6,5 @@ pytest
 httpx
 prometheus-client
 requests
+python-jose
+cachetools

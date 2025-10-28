@@ -8,9 +8,9 @@ metadata:
     version: v1
     nexus.service.type: access-control
     nexus.service.description: "Access-Control-Service"
-    nexus.service.icon: "🔐"
+    nexus.service.icon: "access-control"
     nexus.service.url: "access-control.local"
-    nexus.service.port: "8000"
+    nexus.service.port: "8083"
 spec:
   replicas: 3
   strategy:
@@ -35,7 +35,7 @@ spec:
       serviceAccountName: access-control-service-account
       containers:
       - name: access-control
-        image: nexus/access-control:latest
+        image: nexus/access-control:fix1
         imagePullPolicy: Never
         ports:
         - containerPort: 8000
@@ -92,6 +92,12 @@ spec:
           capabilities:
             drop:
             - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
 
 ---
 apiVersion: v1

@@ -13,20 +13,9 @@ spec:
       - /*
     backends:
     - serviceName: admin-dashboard-service
-      servicePort: 8080
+      servicePort: 8000
       weight: 100
-    plugins:
-      proxy-rewrite:
-        regex_uri:
-        - "^/(.*)"
-        - "/$1"
-      cors:
-        allow_origins: "*"
-        allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
-        allow_headers: "Content-Type,Authorization"
-        expose_headers: "*"
-        max_age: 3600
-        allow_credentials: true
+  # plugins removed for CRD compatibility
   - name: auth-api-route
     match:
       hosts:
@@ -35,20 +24,9 @@ spec:
       - /api/auth/*
     backends:
     - serviceName: auth-api-service
-      servicePort: 8080
+      servicePort: 8084
       weight: 100
-    plugins:
-      proxy-rewrite:
-        regex_uri:
-        - "^/api/auth/(.*)"
-        - "/$1"
-      cors:
-        allow_origins: "*"
-        allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
-        allow_headers: "Content-Type,Authorization"
-        expose_headers: "*"
-        max_age: 3600
-        allow_credentials: true
+  # plugins removed for CRD compatibility
   - name: mongodb-orchestrator-route
     match:
       hosts:
@@ -59,18 +37,140 @@ spec:
     - serviceName: mongodb-orchestrator-service
       servicePort: 8000
       weight: 100
+  # plugins removed for CRD compatibility
+  - name: single-entry-admin
+    match:
+      hosts:
+      - nexus.local
+      paths:
+      - /*
+    backends:
+    - serviceName: landing-page-service
+      servicePort: 8000
+      weight: 100
+  - name: keycloak-under-single-entry
+    match:
+      hosts:
+      - nexus.local
+      paths:
+      - /keycloak/*
     plugins:
-      proxy-rewrite:
+    - name: proxy-rewrite
+      enable: true
+      config:
         regex_uri:
-        - "^/api/mongodb/(.*)"
-        - "/$1"
-      cors:
-        allow_origins: "*"
-        allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
-        allow_headers: "Content-Type,Authorization"
-        expose_headers: "*"
-        max_age: 3600
-        allow_credentials: true
+        - ^/keycloak/(.*)
+        - /$1
+        headers:
+          X-Forwarded-Proto: https
+    backends:
+    - serviceName: keycloak-service
+      servicePort: 8080
+      weight: 100
+  - name: nexus-admin-route
+    match:
+      hosts:
+      - nexus.local
+      paths:
+      - /admin/*
+    plugins:
+    - name: openid-connect
+      enable: true
+      config:
+        client_id: nexus-gateway
+        client_secret: CHANGE_ME
+        discovery: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/.well-known/openid-configuration
+        authorization_endpoint: http://keycloak.local/realms/nexus/protocol/openid-connect/auth
+        token_endpoint: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/protocol/openid-connect/token
+        userinfo_endpoint: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/protocol/openid-connect/userinfo
+        redirect_uri: http://nexus.local/callback
+        scope:
+          - openid
+          - profile
+          - email
+        bearer_only: false
+        set_userinfo_header: true
+        set_id_token_header: false
+        set_access_token_header: false
+        session:
+          secret: please-change-this-session-secret-32-bytes-min
+    backends:
+    - serviceName: admin-dashboard-service
+      servicePort: 8000
+      weight: 100
+
+  - name: nexus-customer-route
+    match:
+      hosts:
+      - nexus.local
+      paths:
+      - /customer/*
+    plugins:
+    - name: openid-connect
+      enable: true
+      config:
+        client_id: nexus-gateway
+        client_secret: CHANGE_ME
+        discovery: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/.well-known/openid-configuration
+        authorization_endpoint: http://keycloak.local/realms/nexus/protocol/openid-connect/auth
+        token_endpoint: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/protocol/openid-connect/token
+        userinfo_endpoint: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/protocol/openid-connect/userinfo
+        redirect_uri: http://nexus.local/callback
+        scope:
+          - openid
+          - profile
+          - email
+        bearer_only: false
+        set_userinfo_header: true
+        set_id_token_header: false
+        set_access_token_header: false
+        session:
+          secret: please-change-this-session-secret-32-bytes-min
+    backends:
+    - serviceName: customer-portal
+      servicePort: 8002
+      weight: 100
+  - name: nexus-oidc-callback
+    match:
+      hosts:
+      - nexus.local
+      paths:
+      - /callback
+    plugins:
+    - name: openid-connect
+      enable: true
+      config:
+        client_id: nexus-gateway
+        client_secret: CHANGE_ME
+        discovery: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/.well-known/openid-configuration
+        authorization_endpoint: http://keycloak.local/realms/nexus/protocol/openid-connect/auth
+        token_endpoint: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/protocol/openid-connect/token
+        userinfo_endpoint: http://keycloak-service.default.svc.cluster.local:8080/realms/nexus/protocol/openid-connect/userinfo
+        redirect_uri: http://nexus.local/callback
+        scope:
+          - openid
+          - profile
+          - email
+        bearer_only: false
+        set_userinfo_header: true
+        set_id_token_header: false
+        set_access_token_header: false
+        session:
+          secret: please-change-this-session-secret-32-bytes-min
+    backends:
+    - serviceName: landing-page-service
+      servicePort: 8000
+      weight: 100
+  - name: customer-portal-under-admin
+    match:
+      hosts:
+      - admin-dashboard.local
+      paths:
+      - /customer/*
+    backends:
+    - serviceName: admin-dashboard-service
+      servicePort: 8000
+      weight: 100
   - name: postgresql-orchestrator-route
     match:
       hosts:
@@ -81,18 +181,27 @@ spec:
     - serviceName: postgresql-orchestrator-service
       servicePort: 8000
       weight: 100
-    plugins:
-      proxy-rewrite:
-        regex_uri:
-        - "^/api/postgresql/(.*)"
-        - "/$1"
-      cors:
-        allow_origins: "*"
-        allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
-        allow_headers: "Content-Type,Authorization"
-        expose_headers: "*"
-        max_age: 3600
-        allow_credentials: true
+  # plugins removed for CRD compatibility
+  - name: keycloak-route
+    match:
+      hosts:
+      - keycloak.local
+      paths:
+      - /*
+    backends:
+    - serviceName: keycloak-service
+      servicePort: 8080
+      weight: 100
+  - name: customer-portal-route
+    match:
+      hosts:
+      - customer.local
+      paths:
+      - /*
+    backends:
+    - serviceName: customer-portal
+      servicePort: 8002
+      weight: 100
 ---
 apiVersion: apisix.apache.org/v2
 kind: ApisixUpstream
@@ -102,16 +211,4 @@ metadata:
 spec:
   loadbalancer:
     type: roundrobin
-  nodes:
-  - host: admin-dashboard-service.default.svc.cluster.local
-    port: 8080
-    weight: 100
-  - host: auth-api-service.default.svc.cluster.local
-    port: 8080
-    weight: 100
-  - host: mongodb-orchestrator-service.default.svc.cluster.local
-    port: 8000
-    weight: 100
-  - host: postgresql-orchestrator-service.default.svc.cluster.local
-    port: 8000
-    weight: 100
+  # nodes removed for CRD compatibility

@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: landing-page
+  labels:
+    app: landing-page
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: landing-page
+  template:
+    metadata:
+      labels:
+        app: landing-page
+    spec:
+      containers:
+      - name: landing-page
+        image: landing-page:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: KEYCLOAK_URL
+          value: "/keycloak"
+        - name: KEYCLOAK_INTERNAL_URL
+          value: "http://keycloak-service:8080"
+        - name: KEYCLOAK_REALM
+          value: "nexus"
+        - name: ADMIN_CLIENT_ID
+          value: "admin-dashboard"
+        - name: CUSTOMER_CLIENT_ID
+          value: "customer-portal"
+        - name: REQUIRED_ADMIN_GROUP
+          value: "platform-admins"
+        - name: REQUIRED_CUSTOMER_GROUP
+          value: "customers"
+        - name: UI_TABS_API
+          value: "http://admin-dashboard-service:8000/api/ui/public"
+        - name: ADMIN_INTERNAL_URL
+          value: "http://admin-dashboard-service:8000"
+        - name: CUSTOMER_INTERNAL_URL
+          value: "http://customer-portal:8002"

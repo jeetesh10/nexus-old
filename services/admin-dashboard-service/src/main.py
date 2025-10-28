@@ -1,24 +1,260 @@
 import os
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from typing import Optional, Dict, Any, TYPE_CHECKING
+from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi.responses import HTMLResponse, Response, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from kubernetes import client, config
+if TYPE_CHECKING:
+    # runtime kubernetes client imported only for type checkers when available
+    from kubernetes import client, config  # type: ignore
+else:
+    # import at runtime (may not be available in some dev environments)
+    try:
+        from kubernetes import client, config  # type: ignore
+    except Exception:
+        client = None  # type: ignore
+        config = None  # type: ignore
 import json
+from urllib.parse import quote_plus
+from datetime import datetime, timezone
 import time
+import httpx
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-from prometheus_client.metrics import REGISTRY
+from prometheus_client.registry import REGISTRY
+from jose import jwt, JWTError
+from cachetools import TTLCache
+import asyncio
+from functools import lru_cache
+
+# Optional Mongo audit (Motor)
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore
+except Exception:
+    AsyncIOMotorClient = None  # type: ignore
+
+# OIDC / Keycloak config via env
+# Public URL used by browsers (can be relative like '/keycloak' for Codespaces)
+KEYCLOAK_PUBLIC_URL = os.getenv("KEYCLOAK_URL", "/keycloak")
+# Internal URL used by the server to reach Keycloak (cluster service)
+KEYCLOAK_INTERNAL_URL = os.getenv("KEYCLOAK_INTERNAL_URL", "http://keycloak-service:8080")
+KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "nexus")
+ADMIN_CLIENT_ID = os.getenv("ADMIN_CLIENT_ID", "admin-dashboard")
+CUSTOMER_CLIENT_ID = os.getenv("CUSTOMER_CLIENT_ID", "customer-portal")
+REQUIRED_ADMIN_GROUP = os.getenv("REQUIRED_ADMIN_GROUP", "platform-admins")
+REQUIRED_CUSTOMER_GROUP = os.getenv("REQUIRED_CUSTOMER_GROUP", "customers")
+
+# Optional direct proxy targets for common UIs
+APISIX_DASHBOARD_URL = os.getenv("APISIX_DASHBOARD_URL", "http://apisix-dashboard.apisix.svc.cluster.local:9000")
+KAFKA_UI_URL = os.getenv("KAFKA_UI_URL", "http://kafka-ui.kafka.svc.cluster.local:8080")
+
+OIDC_DISCOVERY = f"{KEYCLOAK_INTERNAL_URL}/realms/{KEYCLOAK_REALM}/.well-known/openid-configuration"
+jwks_uri: Optional[str] = None
+_issuer_discovered: Optional[str] = None
+_jwks_cache: TTLCache[str, Any] = TTLCache(maxsize=1, ttl=300)
+
+# Optional audit store
+MONGODB_AUDIT_URI = os.getenv("MONGODB_AUDIT_URI")
+_audit_client = None
+_audit_coll = None
+
+async def _get_jwks() -> Dict[str, Any]:
+    global jwks_uri
+    if "jwks" in _jwks_cache:
+        return _jwks_cache["jwks"]
+    async with httpx.AsyncClient(timeout=10.0) as c:
+        # discover JWKS URI once
+        if jwks_uri is None:
+            r = await c.get(OIDC_DISCOVERY)
+            r.raise_for_status()
+            data = r.json()
+            jwks_uri = data.get("jwks_uri")
+            # cache issuer from discovery for JWT validation
+            global _issuer_discovered
+            _issuer_discovered = data.get("issuer") or _issuer_discovered
+        if not jwks_uri:
+            raise RuntimeError("Could not determine JWKS URI from OIDC discovery")
+        r2 = await c.get(jwks_uri)
+        r2.raise_for_status()
+        jwks = r2.json()
+        _jwks_cache["jwks"] = jwks
+        return jwks
+async def verify_jwt(request: Request, required_group: Optional[str] = None) -> Dict[str, Any]:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    token = auth.split(" ", 1)[1]
+    try:
+        jwks = await _get_jwks()
+        unverified = jwt.get_unverified_header(token)
+        kid = unverified.get("kid")
+        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+        if not key:
+            raise HTTPException(status_code=401, detail="No matching JWKS key")
+        # Prefer discovered issuer. If not available, skip issuer verification
+        options = {"verify_aud": False}
+        issuer = _issuer_discovered
+        try:
+            if issuer:
+                payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], options=options, issuer=issuer)
+            else:
+                options["verify_iss"] = False
+                payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], options=options)
+        except JWTError:
+            # Fallback: skip issuer verification to tolerate proxy/public vs internal issuer differences
+            options["verify_iss"] = False
+            payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], options=options)
+        # group check
+        if required_group:
+            groups = payload.get("groups", [])
+            if required_group not in groups:
+                raise HTTPException(status_code=403, detail="Insufficient group membership")
+        return payload
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+async def verify_jwt_token(token: str, required_group: Optional[str] = None) -> Dict[str, Any]:
+    """Verify a JWT provided directly (e.g., from cookie)."""
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing token")
+    try:
+        jwks = await _get_jwks()
+        unverified = jwt.get_unverified_header(token)
+        kid = unverified.get("kid")
+        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+        if not key:
+            raise HTTPException(status_code=401, detail="No matching JWKS key")
+        options = {"verify_aud": False}
+        issuer = _issuer_discovered
+        try:
+            if issuer:
+                payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], options=options, issuer=issuer)
+            else:
+                options["verify_iss"] = False
+                payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], options=options)
+        except JWTError:
+            options["verify_iss"] = False
+            payload = jwt.decode(token, key, algorithms=[key.get("alg", "RS256")], options=options)
+        if required_group:
+            groups = payload.get("groups", [])
+            if required_group not in groups:
+                raise HTTPException(status_code=403, detail="Insufficient group membership")
+        return payload
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+async def ensure_admin(request: Request):
+    await verify_jwt(request, required_group=REQUIRED_ADMIN_GROUP)
+
+async def ensure_customer(request: Request):
+    await verify_jwt(request, required_group=REQUIRED_CUSTOMER_GROUP)
 
 app = FastAPI()
 
+# Kubernetes client will be configured at startup if available
+from typing import Any as _Any, cast
+v1: _Any = None
+k8s_enabled = False
 try:
-    config.load_incluster_config()
-except config.ConfigException:
+    if config is not None:
+        config.load_incluster_config()  # type: ignore[attr-defined]
+        v1 = client.AppsV1Api()  # type: ignore[attr-defined]
+        k8s_enabled = True
+except Exception:
     try:
-        config.load_kube_config()
-    except config.ConfigException:
-        raise RuntimeError("Could not configure Kubernetes client")
+        if config is not None:
+            config.load_kube_config()  # type: ignore[attr-defined]
+            v1 = client.AppsV1Api()  # type: ignore[attr-defined]
+            k8s_enabled = True
+    except Exception:
+        print("[WARN] Could not configure Kubernetes client, running in mock mode.")
+        v1 = None
+        k8s_enabled = False
 
-v1 = client.AppsV1Api()
+# Initialize optional audit Mongo client
+_audit_client: _Any = None
+_audit_coll: _Any = None
+if MONGODB_AUDIT_URI and AsyncIOMotorClient is not None:
+    try:
+        _audit_client = cast(_Any, AsyncIOMotorClient(MONGODB_AUDIT_URI))
+        # database name can be in URI; default to 'nexus' if none, and collection 'audit_logins'
+        # Motor derives DB from URI; for safety, allow env MONGODB_AUDIT_DB/COLL override
+        AUDIT_DB = os.getenv("MONGODB_AUDIT_DB", "nexus")
+        AUDIT_COLL = os.getenv("MONGODB_AUDIT_COLLECTION", "audit_logins")
+        _audit_coll = _audit_client[AUDIT_DB][AUDIT_COLL]
+    except Exception as e:
+        print(f"[WARN] Audit Mongo init failed: {e}")
+        _audit_client = None
+        _audit_coll = None
+
+# Optional UI tabs config store (data-driven navigation)
+MONGODB_UI_URI = os.getenv("MONGODB_UI_URI", MONGODB_AUDIT_URI or "")
+MONGODB_UI_DB = os.getenv("MONGODB_UI_DB", os.getenv("MONGODB_AUDIT_DB", "nexus"))
+MONGODB_UI_COLLECTION = os.getenv("MONGODB_UI_COLLECTION", "ui_tabs")
+_ui_client: _Any = None
+_ui_coll: _Any = None
+if MONGODB_UI_URI and AsyncIOMotorClient is not None:
+    try:
+        _ui_client = cast(_Any, AsyncIOMotorClient(MONGODB_UI_URI))
+        _ui_coll = _ui_client[MONGODB_UI_DB][MONGODB_UI_COLLECTION]
+    except Exception as e:
+        print(f"[WARN] UI Tabs Mongo init failed: {e}")
+        _ui_client = None
+        _ui_coll = None
+
+async def _audit_event(payload: Dict[str, Any], event_type: str = "whoami", request: Optional[Request] = None) -> None:
+    if _audit_coll is None:
+        return
+    try:
+        doc: Dict[str, Any] = {
+            "event_type": event_type,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "sub": payload.get("sub"),
+            "preferred_username": payload.get("preferred_username"),
+            "email": payload.get("email"),
+            "groups": payload.get("groups", []),
+            "client_id": payload.get("azp") or payload.get("clientId"),
+            "iss": payload.get("iss"),
+            "aud": payload.get("aud"),
+            "source": "admin-dashboard",
+        }
+        if request is not None:
+            doc["ip"] = request.client.host if request.client else None
+            doc["path"] = str(request.url)
+            doc["user_agent"] = request.headers.get("user-agent")
+        await _audit_coll.insert_one(doc)
+    except Exception as e:
+        print(f"[WARN] audit write failed: {e}")
+
+def _normalize_groups(groups: list[str]) -> set[str]:
+    out: set[str] = set()
+    for g in groups or []:
+        lg = str(g).strip().lower()
+        if not lg:
+            continue
+        out.add(lg)
+        if lg.endswith('s'):
+            out.add(lg[:-1])
+    # common synonyms
+    out.update({"platform-admin", "platform-admins", "admin", "admins", "customer", "customers"})
+    return out
+
+def _is_in_groups(user_groups: list[str], required: str) -> bool:
+    if not required:
+        return True
+    norm = _normalize_groups(user_groups)
+    r = required.strip().lower()
+    return r in norm or (r.endswith('s') and r[:-1] in norm) or (r + 's' in norm)
+
+def _normalized_origin(request: Request) -> str:
+    """Best-effort origin using X-Forwarded-* headers for proxied environments like Codespaces."""
+    xf_proto = (request.headers.get("x-forwarded-proto", "").split(",")[0] or "").strip()
+    xf_host = (request.headers.get("x-forwarded-host", "").split(",")[0] or "").strip()
+    scheme = xf_proto or (request.url.scheme or "http")
+    host = xf_host or request.headers.get("host") or "localhost"
+    if host.endswith(":443"):
+        host = host[:-4]
+    if host.endswith(":80"):
+        host = host[:-3]
+    return f"{scheme}://{host}"
 
 # Prometheus metrics
 http_requests_total = Counter('http_requests_total', 'Total HTTP requests', ['method', 'endpoint', 'status'])
@@ -26,107 +262,100 @@ http_request_duration_seconds = Histogram('http_request_duration_seconds', 'HTTP
 active_services = Gauge('active_services', 'Number of active services')
 total_services = Gauge('total_services', 'Total number of services')
 
-# Role-based tab configuration
-TAB_CONFIG = {
-    "services": {
-        "id": "services",
-        "name": "Services",
-        "icon": "📊",
-        "roles": ["platform-admin", "service-admin"],
-        "description": "Manage all platform services"
-    },
-    "grafana": {
-        "id": "grafana",
-        "name": "Grafana",
-        "icon": "📈",
-        "roles": ["platform-admin", "monitoring-admin"],
-        "description": "Monitoring dashboards",
-        "url": "http://prometheus-grafana.observability:80",
-        "enabled": True
-    },
-    "prometheus": {
-        "id": "prometheus",
-        "name": "Prometheus",
-        "icon": "📊",
-        "roles": ["platform-admin", "monitoring-admin"],
-        "description": "Metrics and alerting",
-        "url": "http://prometheus-kube-prometheus-prometheus.observability:9090",
-        "enabled": True
-    },
-    "loki": {
-        "id": "loki",
-        "name": "Loki",
-        "icon": "📝",
-        "roles": ["platform-admin", "monitoring-admin"],
-        "description": "Centralized logging",
-        "url": "http://loki.observability:3100",
-        "enabled": True
-    },
-    "alertmanager": {
-        "id": "alertmanager",
-        "name": "Alertmanager",
-        "icon": "🚨",
-        "roles": ["platform-admin", "monitoring-admin"],
-        "description": "Alert management",
-        "url": "http://prometheus-kube-prometheus-alertmanager.observability:9093",
-        "enabled": True
-    },
-    "keycloak": {
-        "id": "keycloak",
-        "name": "Keycloak",
-        "icon": "🔐",
-        "roles": ["platform-admin", "security-admin"],
-        "description": "Identity and access management",
-        "url": "http://localhost:8080",
-        "enabled": False  # Will be enabled when Keycloak is deployed
-    },
-    "api": {
-        "id": "api",
-        "name": "API",
-        "icon": "🔧",
-        "roles": ["platform-admin", "developer"],
-        "description": "API documentation and testing"
-    },
-    "auth-api": {
-        "id": "auth-api",
-        "name": "Auth API",
-        "icon": "🔐",
-        "roles": ["platform-admin", "security-admin", "developer"],
-        "description": "Authentication and authorization API",
-        "url": "http://localhost:8084",
-        "enabled": True
-    },
-    "service-mesh": {
-        "id": "service-mesh",
-        "name": "Service Mesh",
-        "icon": "🕸️",
-        "roles": ["platform-admin", "devops-admin"],
-        "description": "Service mesh for internal communication",
-        "url": "http://localhost:8085",
-        "enabled": True
-    },
-    "api-gateway": {
-        "id": "api-gateway",
-        "name": "API Gateway",
-        "icon": "🚪",
-        "roles": ["platform-admin", "devops-admin"],
-        "description": "API Gateway for external traffic",
-        "url": "http://localhost:8086",
-        "enabled": True
-    },
-    "group-management": {
-        "id": "group-management",
-        "name": "Group Management",
-        "icon": "👥",
-        "roles": ["platform-admin", "security-admin"],
-        "description": "Data-driven access control system",
-        "url": "http://localhost:8083",
-        "enabled": True
-    }
-}
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/api/ui/tabs")
+async def get_ui_tabs(request: Request, _: Dict[str, Any] = Depends(ensure_admin)):
+    """Return the list of UI tabs for the current user, sourced strictly from Mongo collection.
+    Filters by required_groups if present. Tabs support fields: id, name, icon, description,
+    type (internal|external), url (for external), order, enabled, required_groups.
+    """
+    # Extract user groups from JWT cookie (best-effort)
+    user_groups: list[str] = []
+    try:
+        token_cookie = request.cookies.get("access_token")
+        if token_cookie:
+            payload = await verify_jwt_token(token_cookie)
+            user_groups = list(payload.get("groups", []) or [])
+    except Exception:
+        user_groups = []
+    # Always include admin group so platform-admins see all admin tabs by default
+    if REQUIRED_ADMIN_GROUP not in user_groups:
+        user_groups.append(REQUIRED_ADMIN_GROUP)
+    tabs: list[dict[str, Any]] = []
+    if _ui_coll is None:
+        raise HTTPException(status_code=500, detail="UI tabs store not configured (set MONGODB_UI_URI)")
+    try:
+        cursor = _ui_coll.find({"enabled": {"$ne": False}}).sort([("order", 1), ("name", 1)])
+        docs = await cursor.to_list(length=500)
+        for d in docs:
+            raw_req = d.get("required_groups") or []
+            if not isinstance(raw_req, list):
+                raw_req = []
+            req = [str(x) for x in raw_req]  # type: ignore
+            if req and not any((str(g) in user_groups) for g in req):
+                continue
+            tabs.append({
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "icon": d.get("icon", "📁"),
+                "description": d.get("description", ""),
+                "enabled": d.get("enabled", True),
+                "type": d.get("type", "internal"),
+                "url": d.get("url"),
+                "order": d.get("order", 0),
+                "required_groups": req,
+            })
+        tabs.sort(key=lambda x: (int(x.get("order", 0)), str(x.get("name", ""))))
+        return {"tabs": tabs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ui/public")
+async def get_public_tabs():
+    """Public endpoint for landing page tiles. No fallback—purely DB-driven.
+    Expected doc fields:
+      - id (string)
+      - name (string) -> exposed as title
+      - description (string)
+      - icon (string, optional) inner SVG paths/lines markup to render
+      - color (string, optional) hex color used for accent
+      - info_url (string, optional) -> exposed as infoPageUrl
+      - service_url (string, optional) -> exposed as servicePageUrl
+      - enabled (bool), order (number), show_on_landing (bool)
+    """
+    if _ui_coll is None:
+        raise HTTPException(status_code=500, detail="UI tabs store not configured (set MONGODB_UI_URI)")
+    try:
+        cursor = _ui_coll.find({
+            "enabled": {"$ne": False},
+            "show_on_landing": True
+        }).sort([("order", 1), ("name", 1)])
+        docs = await cursor.to_list(length=500)
+        out = [{
+            "id": d.get("id"),
+            "title": d.get("name") or d.get("id"),
+            "description": d.get("description", ""),
+            "color": d.get("color"),
+            "icon": d.get("icon"),
+            "infoPageUrl": d.get("info_url"),
+            "servicePageUrl": d.get("service_url"),
+            "order": d.get("order", 0),
+        } for d in docs]
+        return {"tabs": out}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
+    # Server-side auth guard: require a valid admin token in HttpOnly cookie
+    token_cookie = request.cookies.get("access_token")
+    if not token_cookie:
+        return RedirectResponse(url="/start-login")
+    try:
+        await verify_jwt_token(token_cookie, REQUIRED_ADMIN_GROUP)
+    except HTTPException:
+        return RedirectResponse(url="/start-login")
     start_time = time.time()
     """Main dashboard with vertical tabs for all services"""
     html_content = """
@@ -134,23 +363,7 @@ async def get_dashboard(request: Request):
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nexus Admin Dashboard</title>
         <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                color: #333;
-                overflow-x: hidden;
-            }
-            
             .dashboard-container {
                 display: flex;
                 min-height: 100vh;
@@ -935,16 +1148,37 @@ async def get_dashboard(request: Request):
                         </div>
                         <iframe src="http://localhost:9093" class="iframe-container" id="alertmanager-iframe"></iframe>
                     </div>
+
+                    <!-- APISIX Tab -->
+                    <div id="apisix" class="tab-pane">
+                        <h2>🛣️ APISIX Dashboard</h2>
+                        <p>Reverse proxy and API gateway management UI.</p>
+                        <div style="margin: 16px 0; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <a href="/proxy/apisix/" class="btn btn-primary" target="_blank">Open APISIX (new tab)</a>
+                            <button class="btn btn-secondary" onclick="loadApisix()">Open Inline</button>
+                        </div>
+                        <iframe id="apisix-iframe" class="iframe-container" style="display:none;" src=""></iframe>
+                    </div>
+
+                    <!-- Kafka UI Tab -->
+                    <div id="kafka-ui" class="tab-pane">
+                        <h2>📬 Kafka UI</h2>
+                        <p>Manage topics, partitions, and consumer groups.</p>
+                        <div style="margin: 16px 0; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <a href="/proxy/kafka-ui/" class="btn btn-primary" target="_blank">Open Kafka UI (new tab)</a>
+                            <button class="btn btn-secondary" onclick="loadKafkaUI()">Open Inline</button>
+                        </div>
+                        <iframe id="kafka-iframe" class="iframe-container" style="display:none;" src=""></iframe>
+                    </div>
                     
                     <!-- Keycloak Tab -->
                     <div id="keycloak" class="tab-pane">
                         <div class="coming-soon">
                             <h2>🔐 Keycloak Admin Console</h2>
-                            <p>Identity and access management console will be available here once Keycloak is deployed.</p>
+                            <p>To avoid browser CSP and frame restrictions, the Keycloak console opens in a new tab.</p>
                             <div style="margin: 20px 0;">
-                                <a href="http://localhost:8080" target="_blank" class="btn btn-primary">Open Keycloak in New Tab</a>
+                                <a href="/keycloak/" target="_blank" class="btn btn-primary">Open Keycloak in New Tab</a>
                             </div>
-                            <iframe src="http://localhost:8080" class="iframe-container" id="keycloak-iframe"></iframe>
                         </div>
                     </div>
                     
@@ -970,8 +1204,32 @@ async def get_dashboard(request: Request):
                             <div id="api-test-result" style="margin-top: 10px;"></div>
                         </div>
                     </div>
+                    </div>
+
+                    <!-- Databases Tab -->
+                    <div id="databases" class="tab-pane">
+                        <h2>💾 Databases</h2>
+                        <p>Manage data using built-in tools. Mongo Express is proxied through the dashboard for secure in-cluster access.</p>
+                        <div style="margin: 16px 0; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <a href="/proxy/mongo-express/" class="btn btn-primary" target="_blank">Open Mongo Express (new tab)</a>
+                            <button class="btn btn-secondary" onclick="loadMongoExpress()">Open Inline</button>
+                            <a href="http://mongodb-orchestrator-service:8000/docs" target="_blank" class="btn btn-secondary">Mongo Orchestrator Docs</a>
+                        </div>
+                        <iframe id="mongo-express-iframe" class="iframe-container" style="display:none;" src=""></iframe>
+                    </div>
+
+                    <!-- Service Apps (Discovered) Tab -->
+                    <div id="apps" class="tab-pane">
+                        <h2>📲 Service Apps</h2>
+                        <p>Automatically discovered UIs from services with nexus.service.* labels.</p>
+                        <div style="margin: 10px 0;">
+                            <button class="btn btn-secondary" onclick="loadDiscoveredApps()">Refresh</button>
+                        </div>
+                        <div id="apps-container" class="service-grid">
+                            <div class="loading">Discovering apps...</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
             
             <!-- Vertical Sidebar -->
             <div class="sidebar">
@@ -986,33 +1244,61 @@ async def get_dashboard(request: Request):
         </div>
         
         <script>
-            // Tab configuration
-            const tabConfig = """ + json.dumps(TAB_CONFIG) + """;
-            
-            // Current user role (will be integrated with Keycloak later)
+            // Tabs will be fetched from backend dynamically (data-driven)
+            // Current user state derived from Keycloak
             let currentUserRole = 'platform-admin';
+            let currentUserGroups = [];
+            let keycloakConfig = null;
+            let _kc = null;
+            function loadScript(src) {
+                return new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = src;
+                    s.onload = resolve;
+                    s.onerror = reject;
+                    document.head.appendChild(s);
+                });
+            }
+            function parseJwt (token) {
+                try {
+                    const base64Url = token.split('.')[1];
+                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    }).join(''));
+                    return JSON.parse(jsonPayload);
+                } catch (e) { return {}; }
+            }
             
-            function initializeTabs() {
+            async function initializeTabs() {
                 const container = document.getElementById('tabs-container');
                 let html = '';
-                
-                Object.values(tabConfig).forEach(tab => {
-                    if (tab.roles.includes(currentUserRole)) {
+                try {
+                    const token = _kc?.token || localStorage.getItem('access_token');
+                    const resp = await fetch('/api/ui/tabs', {
+                        headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+                    });
+                    const data = await resp.json();
+                    const tabs = Array.isArray(data?.tabs) ? data.tabs : [];
+                    tabs.forEach(tab => {
                         const isDisabled = tab.enabled === false;
+                        const click = isDisabled ? '' : (tab.type === 'external' && tab.url) ? `window.open('${tab.url}','_blank')` : `showTab('${tab.id}')`;
                         html += `
                             <button class="tab ${isDisabled ? 'disabled' : ''}" 
-                                    onclick="${isDisabled ? '' : `showTab('${tab.id}')`}"
-                                    title="${tab.description}">
-                                <div class="tab-icon">${tab.icon}</div>
+                                    onclick="${click}"
+                                    title="${tab.description || ''}">
+                                <div class="tab-icon">${tab.icon || '📁'}</div>
                                 <div class="tab-content">
                                     <div class="tab-name">${tab.name}</div>
-                                    <div class="tab-description">${tab.description}</div>
+                                    <div class="tab-description">${tab.description || ''}</div>
                                 </div>
                             </button>
                         `;
-                    }
-                });
-                
+                    });
+                } catch (e) {
+                    console.error('Failed to load tabs', e);
+                    html = '<div class="error">Failed to load tabs.</div>';
+                }
                 container.innerHTML = html;
             }
             
@@ -1038,6 +1324,14 @@ async def get_dashboard(request: Request):
                     loadMetricsOverview();
                 } else if (tabName === 'prometheus') {
                     loadPrometheusOverview();
+                } else if (tabName === 'databases') {
+                    loadMongoExpress(true);
+                } else if (tabName === 'apps') {
+                    loadDiscoveredApps();
+                } else if (tabName === 'apisix') {
+                    loadApisix(true);
+                } else if (tabName === 'kafka-ui') {
+                    loadKafkaUI(true);
                 }
             }
             
@@ -1166,6 +1460,46 @@ async def get_dashboard(request: Request):
             
             // Embedded service loading functions
 
+            function loadMongoExpress(inlineOnly=false) {
+                const iframe = document.getElementById('mongo-express-iframe');
+                if (!iframe) return;
+                iframe.src = '/proxy/mongo-express/';
+                iframe.style.display = 'block';
+                if (!inlineOnly) {
+                    window.open('/proxy/mongo-express/', '_blank');
+                }
+            }
+
+            async function loadDiscoveredApps() {
+                const container = document.getElementById('apps-container');
+                if (!container) return;
+                container.innerHTML = '<div class="loading">Discovering apps...</div>';
+                try {
+                    const resp = await fetch('/api/discovered-services');
+                    const data = await resp.json();
+                    if (!data.services || data.services.length === 0) {
+                        container.innerHTML = '<div class="error">No discoverable services found. Ensure services have labels nexus.service.*</div>';
+                        return;
+                    }
+                    let html = '';
+                    data.services.forEach(svc => {
+                        const title = (svc.icon ? svc.icon + ' ' : '') + svc.name;
+                        html += `
+                        <div class="service-card">
+                            <div class="service-name">${title}</div>
+                            <div class="service-namespace">Namespace: ${svc.namespace}</div>
+                            <div style="margin:8px 0; font-size:12px; color:#718096;">Port: ${svc.port || '-'} ${svc.url ? `(url: ${svc.url})` : ''}</div>
+                            <div class="service-actions">
+                                <a class="btn btn-primary" href="/proxy/service/${svc.namespace}/${svc.name}${svc.port ? '/' + svc.port : ''}/" target="_blank">Open</a>
+                            </div>
+                        </div>`;
+                    });
+                    container.innerHTML = html;
+                } catch (e) {
+                    container.innerHTML = `<div class="error">Failed to load discovered apps: ${e.message}</div>`;
+                }
+            }
+
             
             async function loadMetricsOverview() {
                 try {
@@ -1211,6 +1545,21 @@ async def get_dashboard(request: Request):
                 };
                 
                 iframe.src = 'http://localhost:9090';
+            }
+            function loadApisix(inlineOnly=false) {
+                const iframe = document.getElementById('apisix-iframe');
+                if (!iframe) return;
+                iframe.src = '/proxy/apisix/';
+                iframe.style.display = 'block';
+                if (!inlineOnly) { window.open('/proxy/apisix/', '_blank'); }
+            }
+
+            function loadKafkaUI(inlineOnly=false) {
+                const iframe = document.getElementById('kafka-iframe');
+                if (!iframe) return;
+                iframe.src = '/proxy/kafka-ui/';
+                iframe.style.display = 'block';
+                if (!inlineOnly) { window.open('/proxy/kafka-ui/', '_blank'); }
             }
             
             function refreshPrometheus() {
@@ -1329,36 +1678,27 @@ async def get_dashboard(request: Request):
                     try {
                         const token = localStorage.getItem('access_token');
                         if (token) {
-                            // Call Auth API logout endpoint
-                            const response = await fetch('http://auth-api-service:8084/api/auth/logout', {
+                            // Call Auth API logout endpoint (best-effort)
+                            await fetch('http://auth-api-service:8084/api/auth/logout', {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
                                     'Authorization': `Bearer ${token}`
                                 }
-                            });
-                            
-                            if (response.ok) {
-                                console.log('Logout successful');
-                            } else {
-                                console.warn('Logout API call failed, but clearing local data');
-                            }
+                            }).catch(()=>{});
                         }
+                        // Clear server session cookie
+                        try { await fetch('/session/logout', { method: 'POST' }); } catch (e) { /* no-op */ }
                     } catch (error) {
                         console.warn('Logout API call failed, but clearing local data:', error);
                     }
-                    
-                    // Clear local storage
+
+                    // Clear local storage and redirect to the landing page
                     localStorage.removeItem('access_token');
                     localStorage.removeItem('refresh_token');
                     localStorage.removeItem('user_info');
-                    
-                    // Redirect to login page
-                    window.location.href = '/login';
+                    window.location.href = '/';
                 }
-            }
-                }
-                toggleUserMenu();
             }
             
             // Close dropdown when clicking outside
@@ -1371,13 +1711,45 @@ async def get_dashboard(request: Request):
                 }
             });
             
-            // Initialize dashboard
-            document.addEventListener('DOMContentLoaded', function() {
-                initializeTabs();
-                loadServices();
-                
-                // Load user info from Auth API if available
-                loadUserInfo();
+            // Initialize auth and dashboard
+            document.addEventListener('DOMContentLoaded', async function() {
+                try {
+                    keycloakConfig = await fetch('/api/auth/config').then(r=>r.json());
+
+                    // If we already have an access token from the redirect callback, use it
+                    const storedToken = localStorage.getItem('access_token');
+                    if (storedToken) {
+                        // best-effort server whoami to audit and validate token
+                        try { await fetch('/api/auth/whoami', { headers: { 'Authorization': 'Bearer ' + storedToken }}); } catch (e) { /* no-op */ }
+                        const id = parseJwt(storedToken);
+                        currentUserGroups = id.groups || [];
+                        const username = id.preferred_username || id.email || 'User';
+                        document.getElementById('current-user').textContent = username;
+                        document.getElementById('current-role').textContent = (currentUserGroups.join(', ') || 'user');
+
+                        // Route based on groups: admin preferred if both
+                        const isAdmin = currentUserGroups.includes(keycloakConfig.requiredAdminGroup);
+                        const isCustomer = currentUserGroups.includes(keycloakConfig.requiredCustomerGroup);
+                        if (isAdmin || isCustomer) {
+                            const dest = isAdmin ? '/admin' : '/customer/';
+                            const params = new URLSearchParams(window.location.search);
+                            const tab = params.get('tab');
+                            if (tab) { window.location.href = dest + '?tab=' + encodeURIComponent(tab); return; }
+                            window.location.href = dest; return;
+                        }
+
+                        // If token present but no recognized groups, re-run login
+                        window.location.href = '/start-login';
+                        return;
+                    }
+
+                    // No token: start the Keycloak login flow
+                    window.location.href = '/start-login';
+                } catch (e) {
+                    console.error('Auth init failed', e);
+                    // fallback to explicit login start
+                    window.location.href = '/start-login';
+                }
             });
             
             async function loadUserInfo() {
@@ -1403,12 +1775,274 @@ async def get_dashboard(request: Request):
     """
     return HTMLResponse(content=html_content)
 
+
+@app.get("/start-login")
+async def start_login(request: Request):
+    """Redirect to Keycloak for admin client using normalized origin (works behind proxies)."""
+    origin = _normalized_origin(request)
+    redirect_uri = origin + '/auth/callback'
+    client_id = ADMIN_CLIENT_ID
+    auth_url = f"{KEYCLOAK_PUBLIC_URL.rstrip('/')}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/auth?client_id={quote_plus(client_id)}&redirect_uri={quote_plus(redirect_uri)}&response_type=token&scope=openid%20profile%20email"
+    return RedirectResponse(url=auth_url)
+
+
+@app.get("/start-signup")
+async def start_signup(request: Request):
+    """Redirect user to Keycloak self-registration for this client using the same callback (normalized origin)."""
+    origin = _normalized_origin(request)
+    redirect_uri = origin + '/auth/callback'
+    client_id = ADMIN_CLIENT_ID
+    reg_url = (
+        f"{KEYCLOAK_PUBLIC_URL.rstrip('/')}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/registrations"
+        f"?client_id={quote_plus(client_id)}&redirect_uri={quote_plus(redirect_uri)}&response_type=token&scope=openid%20profile%20email"
+    )
+    return RedirectResponse(url=reg_url)
+
+
+@app.get("/auth/callback", response_class=HTMLResponse)
+async def auth_callback():
+        """A tiny client-side callback page to capture the access token from the fragment (#) and store it in localStorage.
+        Then it calls /api/auth/whoami (best-effort) and redirects to /admin or /customer based on groups.
+        """
+        # Inject required group names into the client script so routing decisions are consistent with server config
+        admin_group = REQUIRED_ADMIN_GROUP
+        customer_group = REQUIRED_CUSTOMER_GROUP
+        page = f"""
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8" />
+            <title>Auth Callback</title>
+        </head>
+        <body>
+            <script>
+                (function(){{
+                    try {{
+                        var hash = window.location.hash.substring(1);
+                        var params = new URLSearchParams(hash);
+                        var access_token = params.get('access_token');
+                        if (!access_token) {{
+                            document.body.innerText = 'No access token found in callback.';
+                            return;
+                        }}
+                        // persist token for app usage
+                        localStorage.setItem('access_token', access_token);
+                        // establish server session (HttpOnly cookie)
+                        fetch('/session/login', {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: JSON.stringify({{ access_token: access_token }})
+                        }}).catch(function(){{ /* best-effort */ }});
+                        // whoami to let server audit and to retrieve groups
+                        fetch('/api/auth/whoami', {{ headers: {{ 'Authorization': 'Bearer ' + access_token }} }}).then(function(r){{
+                            return r.json();
+                        }}).then(function(data){{
+                            var groups = (data && data.groups) || [];
+                            var adminGroup = "{admin_group}";
+                            var customerGroup = "{customer_group}";
+                            if (groups.indexOf(adminGroup) !== -1) {{
+                                window.location.href = '/admin';
+                            }} else if (groups.indexOf(customerGroup) !== -1) {{
+                                window.location.href = '/customer/';
+                            }} else {{
+                                // default destination when groups are missing: admin
+                                window.location.href = '/admin';
+                            }}
+                        }}).catch(function(e){{
+                            console.error('whoami failed', e);
+                            window.location.href = '/admin';
+                        }});
+                    }} catch (e) {{
+                        console.error(e);
+                        document.body.innerText = 'Auth callback error';
+                    }}
+                }})();
+            </script>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=page)
+
+@app.post("/session/login")
+async def session_login(request: Request):
+    """Set an HttpOnly cookie with the access token for server-side route protection."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    token = str((data or {}).get("access_token") or "")
+    if not token:
+        raise HTTPException(status_code=400, detail="access_token required")
+    # Verify token (no group requirement here; route handlers will enforce as needed)
+    await verify_jwt_token(token)
+    resp = JSONResponse({"ok": True})
+    # For dev, secure=False. Consider True when served over HTTPS.
+    resp.set_cookie("access_token", token, httponly=True, samesite="lax", secure=False)
+    return resp
+
+@app.post("/session/logout")
+async def session_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("access_token")
+    return resp
+
+
+@app.get("/", response_class=HTMLResponse)
+async def landing_page():
+    html = """
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Nexus - The Center of Connections</title>
+    <script src=\"https://cdn.tailwindcss.com\"></script>
+    <script>
+        tailwind.config = { theme: { extend: { colors: { 'nexus-blue': '#1a73e8', 'nexus-dark': '#1e293b', 'nexus-light': '#f1f5f9' }, fontFamily: { sans: ['Inter','sans-serif'] } } } };
+    </script>
+    <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap\" rel=\"stylesheet\">
+    <style>
+        .tile-shadow { transition: all 0.3s ease; box-shadow: 0 10px 15px -3px rgba(0,0,0,.05), 0 4px 6px -2px rgba(0,0,0,.05); }
+        .tile-shadow:hover { box-shadow: 0 20px 25px -5px rgba(26,115,232,.2), 0 10px 10px -5px rgba(26,115,232,.1); transform: translateY(-5px); }
+        .collapsed { max-height: 0; padding-top: 0 !important; padding-bottom: 0 !important; opacity: 0; transition: max-height .5s ease-out, padding .5s ease-out, opacity .3s ease-out; overflow: hidden; }
+    </style>
+    <script>
+      function startLogin(){ window.location.href = '/start-login'; }
+      function startSignup(){ window.location.href = '/start-signup'; }
+    </script>
+</head>
+<body class=\"font-sans bg-nexus-light text-nexus-dark\">
+    <header class=\"sticky top-0 z-50 bg-white shadow-lg\">
+        <div class=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8\">
+            <div class=\"flex justify-between items-center h-16\">
+                <div class=\"flex-shrink-0\">
+                    <span class=\"text-3xl font-extrabold text-nexus-blue tracking-tight\">Nexus</span>
+                    <span class=\"hidden sm:inline text-xs ml-2 text-gray-500 italic\">The center of connections.</span>
+                </div>
+                <div class=\"flex items-center space-x-4\">
+                    <nav class=\"hidden md:flex space-x-8\">
+                        <a href=\"#\" class=\"text-gray-600 hover:text-nexus-blue font-medium\">Home</a>
+                        <a href=\"#services\" class=\"text-gray-600 hover:text-nexus-blue font-medium\">Services</a>
+                        <a href=\"#\" class=\"text-gray-600 hover:text-nexus-blue font-medium\">About Us</a>
+                        <a href=\"#\" class=\"text-gray-600 hover:text-nexus-blue font-medium\">Contact</a>
+                    </nav>
+                    <button id=\"hero-toggle\" class=\"hidden sm:inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full text-gray-700 bg-gray-100 hover:bg-gray-200\">Hide Hero</button>
+                    <div class=\"flex items-center space-x-2\">
+                      <button onclick=\"startSignup()\" class=\"px-4 py-2 bg-white text-nexus-blue border border-nexus-blue text-sm font-semibold rounded-full hover:bg-nexus-light transition shadow-sm\">Sign up</button>
+                      <button onclick=\"startLogin()\" class=\"px-4 py-2 bg-nexus-blue text-white text-sm font-semibold rounded-full hover:bg-nexus-blue/90 transition shadow-md\">Sign in</button>
+                    </div>
+                    <button class=\"md:hidden text-gray-600 hover:text-nexus-blue\">
+                        <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"w-6 h-6\"><line x1=\"3\" y1=\"12\" x2=\"21\" y2=\"12\"></line><line x1=\"3\" y1=\"6\" x2=\"21\" y2=\"6\"></line><line x1=\"3\" y1=\"18\" x2=\"21\" y2=\"18\"></line></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section id=\"hero-section\" class=\"relative pt-16 pb-24 lg:pt-24 lg:pb-32 bg-white overflow-hidden shadow-inner\">
+            <div class=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center\">
+                <div class=\"lg:w-3/4 mx-auto\">
+                    <h1 class=\"text-5xl sm:text-6xl lg:text-7xl font-extrabold text-nexus-dark leading-tight mb-4\">IT Solutions at <span class=\"text-nexus-blue\">The Center of Connections.</span></h1>
+                    <p class=\"text-xl sm:text-2xl text-gray-500 mb-8 max-w-3xl mx-auto\">Nexus delivers integrated, future-proof IT services designed to keep your business running seamlessly and securely, connecting you to tomorrow's possibilities.</p>
+                    <div class=\"flex justify-center space-x-4\">
+                        <a href=\"#services\" class=\"px-8 py-3 text-lg font-bold text-white bg-nexus-blue rounded-full shadow-xl hover:bg-nexus-blue/90\">Explore Our Services</a>
+                        <a href=\"#\" class=\"px-8 py-3 text-lg font-bold text-nexus-dark bg-white border-2 border-nexus-blue rounded-full shadow-xl hover:bg-nexus-light\">Get a Quote</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id=\"services\" class=\"py-20 lg:py-32\">
+            <div class=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8\">
+                <h2 class=\"text-4xl font-bold text-center mb-4 text-nexus-dark\">Our Core IT Services</h2>
+                <p class=\"text-lg text-gray-500 text-center mb-16\">Choose from our suite of products and services designed for reliability, speed, and security.</p>
+                <div id=\"services-container\" class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8\"></div>
+            </div>
+        </section>
+
+        <section class=\"bg-nexus-blue py-16\">
+            <div class=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center\">
+                <h2 class=\"text-3xl sm:text-4xl font-extrabold text-white mb-4\">Ready to Build Your Future?</h2>
+                <p class=\"text-lg text-nexus-light mb-8 max-w-2xl mx-auto\">Let Nexus be the bridge between your current capabilities and your next major technological leap.</p>
+                <a href=\"#\" class=\"px-10 py-4 text-xl font-bold text-nexus-blue bg-white rounded-full shadow-2xl hover:bg-gray-100\">Start Your Project Now</a>
+            </div>
+        </section>
+    </main>
+
+    <footer class=\"bg-nexus-dark text-white py-8\">
+        <div class=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center text-center md:text-left\">
+            <div class=\"mb-4 md:mb-0\">
+                <span class=\"text-2xl font-extrabold text-nexus-blue\">Nexus</span>
+                <p class=\"text-sm text-gray-400 mt-1\">&copy; 2025 Nexus. All rights reserved.</p>
+            </div>
+            <div class=\"flex space-x-6 text-sm\">
+                <a href=\"#\" class=\"hover:text-nexus-blue\">Privacy Policy</a>
+                <a href=\"#\" class=\"hover:text-nexus-blue\">Terms of Service</a>
+                <a href=\"#\" class=\"hover:text-nexus-blue\">Careers</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const heroSection = document.getElementById('hero-section');
+        const heroToggleButton = document.getElementById('hero-toggle');
+        function toggleHero(){ if(heroSection.classList.contains('collapsed')){ heroSection.classList.remove('collapsed'); heroToggleButton.textContent='Hide Hero'; } else { heroSection.classList.add('collapsed'); heroToggleButton.textContent='Show Hero'; } }
+        if(heroToggleButton){ heroToggleButton.addEventListener('click', toggleHero); }
+
+        function createServiceTile(service){
+            const color = service.color || '#1a73e8';
+            const iconInner = service.icon || '';
+            const title = service.title || service.id;
+            const desc = service.description || '';
+            const infoUrl = service.infoPageUrl || '#';
+            const serviceUrl = service.servicePageUrl || '#';
+            return `
+                <div class=\"bg-white p-8 rounded-xl tile-shadow border-t-4\" style=\"border-top-color: ${color};\">
+                    <div class=\"flex items-center mb-4\">
+                        <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"36\" height=\"36\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"${color}\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"mr-3\">${iconInner}</svg>
+                        <h3 class=\"text-2xl font-semibold text-nexus-dark\">${title}</h3>
+                    </div>
+                    <p class=\"text-gray-600 mb-6\">${desc}</p>
+                    <div class=\"flex space-x-4\">
+                        <a href=\"${infoUrl}\" class=\"text-sm font-semibold text-nexus-blue hover:underline\">Info Page &rarr;</a>
+                        <span class=\"text-gray-300\">|</span>
+                        <a href=\"${serviceUrl}\" class=\"text-sm font-semibold text-nexus-blue hover:underline\">Service Page &rarr;</a>
+                    </div>
+                </div>`;
+        }
+
+        async function renderServices(){
+            const container = document.getElementById('services-container');
+            if(!container) return;
+            container.innerHTML = '<div class="col-span-full text-center text-gray-500">Loading...</div>';
+            try{
+                const resp = await fetch('/api/ui/public');
+                const data = await resp.json();
+                const tabs = Array.isArray(data && data.tabs) ? data.tabs : [];
+                if(!tabs.length){
+                    container.innerHTML = '<div class="col-span-full text-center text-red-500">No services configured. Add docs to MongoDB collection ui_tabs with show_on_landing=true.</div>';
+                    return;
+                }
+                container.innerHTML = tabs.map(createServiceTile).join('');
+            } catch(e){
+                container.innerHTML = '<div class="col-span-full text-center text-red-500">Failed to load services: ' + (e && e.message || e) + '</div>';
+            }
+        }
+
+        window.onload = renderServices;
+    </script>
+</body>
+</html>
+    """
+    return HTMLResponse(content=html)
+
 @app.get("/api/services")
-def get_services():
+def get_services(_: Dict[str, Any] = Depends(ensure_admin)) -> Dict[str, Any]:
     start_time = time.time()
     try:
         deployments = v1.list_deployment_for_all_namespaces(watch=False)
-        services = []
+        services: list[Dict[str, Any]] = []
         running_count = 0
         total_count = 0
         
@@ -1439,7 +2073,7 @@ def get_services():
         http_requests_total.labels(method='GET', endpoint='/api/services', status='200').inc()
 
 @app.post("/api/services/{name}/stop")
-def stop_service(name: str):
+def stop_service(name: str, request: Request, _: Dict[str, Any] = Depends(ensure_admin)):
     try:
         body = {"spec": {"replicas": 0}}
         v1.patch_namespaced_deployment(name=name, namespace="default", body=body)
@@ -1448,7 +2082,7 @@ def stop_service(name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/services/{name}/start")
-def start_service(name: str):
+def start_service(name: str, request: Request, _: Dict[str, Any] = Depends(ensure_admin)):
     try:
         body = {"spec": {"replicas": 1}} # Assumes 1 replica, can be more dynamic
         v1.patch_namespaced_deployment(name=name, namespace="default", body=body)
@@ -1459,6 +2093,36 @@ def start_service(name: str):
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+@app.get("/api/auth/config")
+async def auth_config():
+    """Frontend will fetch this to init keycloak-js"""
+    return {
+        "url": KEYCLOAK_PUBLIC_URL,
+        "realm": KEYCLOAK_REALM,
+        "adminClientId": ADMIN_CLIENT_ID,
+        "customerClientId": CUSTOMER_CLIENT_ID,
+        "requiredAdminGroup": REQUIRED_ADMIN_GROUP,
+        "requiredCustomerGroup": REQUIRED_CUSTOMER_GROUP,
+    }
+
+@app.get("/api/auth/whoami")
+async def whoami(request: Request):
+    """Return caller identity (from JWT) and write an audit record when configured."""
+    payload = await verify_jwt(request)
+    await _audit_event(payload, event_type="whoami", request=request)
+    return {
+        "user": {
+            "sub": payload.get("sub"),
+            "preferred_username": payload.get("preferred_username"),
+            "email": payload.get("email"),
+        },
+        "groups": payload.get("groups", []),
+        "exp": payload.get("exp"),
+        "iat": payload.get("iat"),
+        "iss": payload.get("iss"),
+        "aud": payload.get("aud"),
+    }
 
 @app.get("/login")
 async def login_page():
@@ -1581,7 +2245,7 @@ async def login_page():
                         localStorage.setItem('user_info', JSON.stringify(data.user));
                         
                         // Redirect to dashboard
-                        window.location.href = '/';
+                        window.location.href = '/admin';
                     } else {
                         const errorData = await response.json();
                         errorMessage.textContent = errorData.message || 'Login failed';
@@ -1604,39 +2268,39 @@ async def metrics():
     return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/api/logs")
-async def get_logs(query: str = "{app=\"log-generator\"}"):
+async def get_logs(query: str = "{app=\"log-generator\"}") -> Dict[str, Any]:
     """Fetch logs from Kubernetes pods using Python client"""
     try:
-        from kubernetes import client, config
+        from kubernetes import client, config  # type: ignore
         
         # Load in-cluster config
         try:
-            config.load_incluster_config()
-        except:
+            config.load_incluster_config()  # type: ignore
+        except Exception:
             # Fallback to default config for local development
-            config.load_kube_config()
-        
-        v1 = client.CoreV1Api()
-        
+            config.load_kube_config()  # type: ignore
+
+        v1 = client.CoreV1Api()  # type: ignore
+
         # Get logs from log-generator pods
-        logs = []
+        logs: list[Dict[str, str]] = []
         try:
             # Get pods with label app=log-generator
-            pods = v1.list_namespaced_pod(
+            pods = v1.list_namespaced_pod(  # type: ignore
                 namespace="default",
                 label_selector="app=log-generator"
             )
-            
+
             for pod in pods.items:
                 if pod.status.phase == 'Running':
                     # Get logs from the pod
-                    pod_logs = v1.read_namespaced_pod_log(
+                    pod_logs = v1.read_namespaced_pod_log(  # type: ignore
                         name=pod.metadata.name,
                         namespace="default",
                         tail_lines=50,
                         timestamps=True
                     )
-                    
+
                     # Parse logs
                     for line in pod_logs.strip().split('\n'):
                         if line.strip():
@@ -1645,32 +2309,32 @@ async def get_logs(query: str = "{app=\"log-generator\"}"):
                             if len(parts) >= 2:
                                 timestamp_str = parts[0]
                                 message = parts[1]
-                                
+
                                 # Extract log level
                                 level = 'INFO'
                                 if '[ERROR]' in message:
                                     level = 'ERROR'
                                 elif '[WARN]' in message:
                                     level = 'WARN'
-                                
+
                                 logs.append({
                                     'timestamp': timestamp_str,
                                     'level': level,
                                     'message': message
                                 })
-                    
+
                     break  # Only get logs from first running pod
-            
+
             return {"logs": logs[-20:]}  # Return last 20 logs
-            
+
         except Exception as e:
             return {"logs": [], "error": f"Failed to fetch logs: {str(e)}"}
-            
+
     except Exception as e:
         return {"logs": [], "error": str(e)}
 
 @app.get("/api/metrics-overview")
-async def get_metrics_overview():
+async def get_metrics_overview() -> Dict[str, Any]:
     """Get basic metrics overview for embedded display"""
     try:
         # Get basic cluster metrics
@@ -1681,7 +2345,7 @@ async def get_metrics_overview():
             'kubectl', 'get', 'pods', '--all-namespaces', '--field-selector=status.phase=Running', '-o', 'json'
         ], capture_output=True, text=True, timeout=10)
         
-        pod_count = 0
+        pod_count: int = 0
         if result.returncode == 0:
             import json
             pods_data = json.loads(result.stdout)
@@ -1692,7 +2356,7 @@ async def get_metrics_overview():
             'kubectl', 'get', 'services', '--all-namespaces', '-o', 'json'
         ], capture_output=True, text=True, timeout=10)
         
-        service_count = 0
+        service_count: int = 0
         if result.returncode == 0:
             services_data = json.loads(result.stdout)
             service_count = len(services_data.get('items', []))
@@ -1803,3 +2467,147 @@ async def query_prometheus(query: str):
     except Exception as e:
         return {"error": str(e)}
 # Tue Aug 12 16:28:47 MST 2025
+
+@app.get("/api/discovered-services")
+def discovered_services(_: Dict[str, Any] = Depends(ensure_admin)):
+    """Discover services that expose UIs via labels and return minimal info.
+    Looks for Services with labels nexus.service.* and returns name, namespace, port, and optional icon/url.
+    """
+    try:
+        core = client.CoreV1Api()
+        svcs = core.list_service_for_all_namespaces(watch=False)
+        out = []
+        for s in svcs.items:
+            labels = (s.metadata.labels or {})
+            if any(k.startswith("nexus.service.") for k in labels.keys()):
+                # pick first port if not labeled
+                port = labels.get("nexus.service.port")
+                if not port and s.spec.ports:
+                    port = str(s.spec.ports[0].port)
+                out.append({
+                    "name": s.metadata.name,
+                    "namespace": s.metadata.namespace,
+                    "port": port,
+                    "icon": labels.get("nexus.service.icon"),
+                    "url": labels.get("nexus.service.url"),
+                })
+        return {"services": out}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _proxy_request(target_base: str, path: str, request: Request):
+    """Helper to proxy incoming request to target_base/path, preserving method, headers, and body where reasonable."""
+    url = target_base.rstrip('/') + '/' + path.lstrip('/')
+    method = request.method
+    headers = dict(request.headers)
+    # Remove hop-by-hop headers
+    for h in ["host", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"]:
+        headers.pop(h, None)
+    async with httpx.AsyncClient(timeout=30.0) as client_http:
+        body = await request.body()
+        resp = await client_http.request(method, url, headers=headers, content=body, params=dict(request.query_params))
+    # Stream back response
+    excluded = set(["content-encoding", "transfer-encoding", "connection"])
+    resp_headers = [(k, v) for k, v in resp.headers.items() if k.lower() not in excluded]
+    return StreamingResponse(iter([resp.content]), status_code=resp.status_code, headers=dict(resp_headers), media_type=resp.headers.get("content-type"))
+
+
+def _rewrite_location_for_keycloak(location: str) -> str:
+    """Rewrite upstream Keycloak Location header to our proxied base '/keycloak'.
+    Examples:
+      http://keycloak-service:8080/realms/nexus/... -> /keycloak/realms/nexus/...
+      /realms/nexus/... -> /keycloak/realms/nexus/...
+      already under /keycloak -> unchanged
+    """
+    try:
+        if not location:
+            return location
+        if location.startswith('/keycloak'):
+            return location
+        # Absolute URL from internal service
+        if location.startswith(KEYCLOAK_INTERNAL_URL):
+            suffix = location[len(KEYCLOAK_INTERNAL_URL):]
+            if not suffix.startswith('/'):
+                suffix = '/' + suffix
+            return '/keycloak' + suffix
+        # Absolute but different host: leave as-is
+        # Relative root path
+        if location.startswith('/'):
+            return '/keycloak' + location
+        return location
+    except Exception:
+        return location
+
+
+@app.api_route('/keycloak', methods=["GET"])  # convenience to add trailing slash
+async def keycloak_root_redirect():
+    return JSONResponse({"message": "Keycloak proxy root. Use /keycloak/ for console."})
+
+
+@app.api_route('/keycloak/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_keycloak(request: Request, path: str = ""):
+    """Public reverse proxy to Keycloak so browsers can hit '/keycloak/...'."""
+    # Build upstream URL
+    target_base = KEYCLOAK_INTERNAL_URL
+    url = target_base.rstrip('/') + '/' + path.lstrip('/')
+    method = request.method
+    headers = dict(request.headers)
+    for h in ["host", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"]:
+        headers.pop(h, None)
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client_http:
+        body = await request.body()
+        resp = await client_http.request(method, url, headers=headers, content=body, params=dict(request.query_params))
+    # Copy headers and rewrite Location if present
+    excluded = set(["content-encoding", "transfer-encoding", "connection"])
+    hdrs = {k: v for k, v in resp.headers.items() if k.lower() not in excluded}
+    if 'location' in {k.lower() for k in hdrs.keys()}:
+        # normalize access preserving original casing may be complex; set explicitly
+        loc_val = None
+        for k in list(hdrs.keys()):
+            if k.lower() == 'location':
+                loc_val = hdrs.pop(k)
+                break
+        if loc_val is not None:
+            hdrs['Location'] = _rewrite_location_for_keycloak(loc_val)
+    return StreamingResponse(iter([resp.content]), status_code=resp.status_code, headers=hdrs, media_type=resp.headers.get("content-type"))
+
+
+@app.api_route('/proxy/mongo-express/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_mongo_express(request: Request, path: str = "", _: Dict[str, Any] = Depends(ensure_admin)):
+    target = "http://mongo-express.default.svc.cluster.local:8081"
+    return await _proxy_request(target, path, request)
+
+
+@app.api_route('/proxy/apisix/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_apisix(request: Request, path: str = "", _: Dict[str, Any] = Depends(ensure_admin)):
+    target = APISIX_DASHBOARD_URL
+    return await _proxy_request(target, path, request)
+
+
+@app.api_route('/proxy/kafka-ui/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_kafka_ui(request: Request, path: str = "", _: Dict[str, Any] = Depends(ensure_admin)):
+    target = KAFKA_UI_URL
+    return await _proxy_request(target, path, request)
+
+
+@app.api_route('/proxy/service/{namespace}/{name}/{port}/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_service_with_port(request: Request, namespace: str, name: str, port: str, path: str = "", _: Dict[str, Any] = Depends(ensure_admin)):
+    target = f"http://{name}.{namespace}.svc.cluster.local:{port}"
+    return await _proxy_request(target, path, request)
+
+
+@app.api_route('/proxy/service/{namespace}/{name}/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_service(request: Request, namespace: str, name: str, path: str = "", _: Dict[str, Any] = Depends(ensure_admin)):
+    # Discover service to get its first port
+    core = client.CoreV1Api()
+    svc = core.read_namespaced_service(name=name, namespace=namespace)
+    port = svc.spec.ports[0].port
+    target = f"http://{name}.{namespace}.svc.cluster.local:{port}"
+    return await _proxy_request(target, path, request)
+
+@app.api_route('/customer/{path:path}', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_customer_portal(request: Request, path: str = "", _: Dict[str, Any] = Depends(ensure_customer)):
+    """Single-entry: proxy to the Customer Portal under the admin dashboard host."""
+    target = "http://customer-portal.default.svc.cluster.local:8002"
+    return await _proxy_request(target, path, request)

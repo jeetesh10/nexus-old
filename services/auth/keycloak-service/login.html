@@ -146,10 +146,42 @@
 
     <script>
         function login() {
-            // Redirect to Keycloak login using Implicit Flow (no CORS issues)
-            const clientId = 'nexus-landing-page';
-            const redirectUri = encodeURIComponent(config.landingPageUrl + '/landing-page.html');
-            const authUrl = `${config.keycloakBaseUrl}/realms/nexus-platform/protocol/openid-connect/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=openid`;
+            // Redirect to Keycloak login using Implicit Flow (OIDC requires nonce/state)
+            const clientId = 'nexus-landing'; // dedicated landing client for single login
+
+            // Generate cryptographically secure randoms for state and nonce (base64url)
+            const toBase64Url = (bytes) => btoa(String.fromCharCode.apply(null, bytes))
+                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+            const rand = (len) => {
+                const arr = new Uint8Array(len);
+                window.crypto.getRandomValues(arr);
+                return toBase64Url(arr);
+            };
+            const state = rand(16);
+            const nonce = rand(16);
+
+            // Persist for validation on callback
+            try {
+                sessionStorage.setItem('oidc_state', state);
+                sessionStorage.setItem('oidc_nonce', nonce);
+                sessionStorage.setItem('oidc_state_ts', String(Date.now()));
+            } catch (e) {
+                console.warn('SessionStorage unavailable; continuing without persistence');
+            }
+
+            // After login, send user to a small router page that will route by groups
+            const redirectUri = encodeURIComponent(config.landingPageUrl + '/router.html');
+            const scope = encodeURIComponent('openid profile email');
+            // If running in Codespaces, prefer the proxied path so the browser stays on the same host
+            const idpPrefix = config.isCodespaces ? '/keycloak' : config.keycloakBaseUrl;
+            const authUrl = `${idpPrefix}/realms/nexus/protocol/openid-connect/auth` +
+                `?client_id=${clientId}` +
+                `&redirect_uri=${redirectUri}` +
+                `&response_type=id_token%20token` +
+                `&response_mode=fragment` +
+                `&scope=${scope}` +
+                `&state=${state}` +
+                `&nonce=${nonce}`;
             console.log('🔐 Redirecting to:', authUrl);
             window.location.href = authUrl;
         }

@@ -1,0 +1,25 @@
+name: Validate ports.yaml
+
+on:
+  pull_request:
+    paths:
+      - 'config/ports.yaml'
+      - 'iac/**'
+      - 'deploy/**'
+      - '.github/**'
+      - 'scripts/**'
+
+jobs:
+  validate-ports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.36.1/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+      - name: Run ports validator
+        run: |
+          chmod +x scripts/validate-ports.sh
+          ./scripts/validate-ports.sh

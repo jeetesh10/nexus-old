@@ -8,7 +8,7 @@ metadata:
     version: v1
     nexus.service.type: landing-page
     nexus.service.description: "Landing-Page-Service"
-    nexus.service.icon: "🏠"
+    nexus.service.icon: "🗺️"
     nexus.service.url: "landing-page.local"
     nexus.service.port: "8000"
 spec:
